@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/notnil/chess"
+	chess "github.com/corentings/chess/v2"
 )
 
 type Color string
@@ -56,7 +56,7 @@ func (g *Game) Move(uci string) error {
 	if err != nil {
 		return ErrIllegalMove
 	}
-	if err := g.engine.Move(move); err != nil {
+	if err := g.engine.Move(move, nil); err != nil {
 		return ErrIllegalMove
 	}
 	return nil
@@ -130,7 +130,7 @@ func (g *Game) ValidMoves() []string {
 	notation := chess.UCINotation{}
 	uci := make([]string, len(moves))
 	for i, m := range moves {
-		uci[i] = notation.Encode(g.engine.Position(), m)
+		uci[i] = notation.Encode(g.engine.Position(), &m)
 	}
 	return uci
 }
