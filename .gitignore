@@ -1,0 +1,32 @@
+# Go
+/bin/
+*.test
+*.out
+coverage.txt
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.auto.tfvars
+override.tf
+override.tf.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Env
+.env
+.env.local
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Claude Code (local-only settings, permissions per máquina)
+.claude/settings.local.json
