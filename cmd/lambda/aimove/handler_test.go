@@ -214,6 +214,65 @@ func TestHandle_Move_Success(t *testing.T) {
 	games.AssertExpectations(t)
 }
 
+const aiEndsGameFEN = "4k3/8/8/8/1n6/8/P7/4K3 b - - 0 1"
+
+func TestHandle_Move_GameEnds_RecordsHistory(t *testing.T) {
+	games := new(mockGameStore)
+	conns := new(mockConnectionStore)
+	rate := new(mockRateLimitStore)
+	history := new(mockHistoryStore)
+	commentator := new(mockCommentator)
+	bc := new(mockBroadcaster)
+
+	g := baseAIGame()
+	g.FEN = aiEndsGameFEN
+	now := time.UnixMilli(g.LastMoveAt)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").Return(&store.Connection{PlayerID: "player-1", GameID: "game-1"}, nil)
+	games.On("GetGame", mock.Anything, "game-1").Return(g, nil)
+	games.On("UpdateGame", mock.Anything, mock.MatchedBy(func(updated *store.Game) bool {
+		return updated.Status == "draw_insufficient_material" && updated.EndedAt == now.UnixMilli() && updated.TurnOf == ""
+	}), aiEndsGameFEN).Return(nil)
+	history.On("RecordGameEnd", mock.Anything, mock.MatchedBy(func(updated *store.Game) bool {
+		return updated.Status == "draw_insufficient_material"
+	})).Return(nil)
+	rate.On("IncrementAndCheck", mock.Anything, "player-1", mock.Anything, dailyBedrockLimit, mock.Anything).Return(true, nil)
+	commentator.On("Comment", mock.Anything, mock.Anything, "b4a2").Return("Nice trade!", nil)
+	bc.On("Send", mock.Anything, "conn-1", mock.Anything).Return(nil)
+
+	d := deps{games: games, connections: conns, rateLimits: rate, history: history, commentator: commentator, broadcaster: bc, now: fixedNow(now)}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+
+	require.NoError(t, err)
+	history.AssertExpectations(t)
+}
+
+func TestHandle_Move_RecordHistoryError(t *testing.T) {
+	games := new(mockGameStore)
+	conns := new(mockConnectionStore)
+	rate := new(mockRateLimitStore)
+	history := new(mockHistoryStore)
+	commentator := new(mockCommentator)
+	bc := new(mockBroadcaster)
+
+	g := baseAIGame()
+	g.FEN = aiEndsGameFEN
+	now := time.UnixMilli(g.LastMoveAt)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").Return(&store.Connection{PlayerID: "player-1", GameID: "game-1"}, nil)
+	games.On("GetGame", mock.Anything, "game-1").Return(g, nil)
+	games.On("UpdateGame", mock.Anything, mock.Anything, aiEndsGameFEN).Return(nil)
+	history.On("RecordGameEnd", mock.Anything, mock.Anything).Return(errors.New("network error"))
+
+	d := deps{games: games, connections: conns, rateLimits: rate, history: history, commentator: commentator, broadcaster: bc, now: fixedNow(now)}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+
+	require.Error(t, err)
+	rate.AssertNotCalled(t, "IncrementAndCheck")
+}
+
 func TestHandle_Move_RateLimited_NoComment(t *testing.T) {
 	games := new(mockGameStore)
 	conns := new(mockConnectionStore)
