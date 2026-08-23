@@ -1,7 +1,28 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/inter';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+@theme {
+  --color-ink: #14181a;
+  --color-ink-raised: #1d2321;
+  --color-ink-line: #2a3230;
+  --color-paper: #f3f1e7;
+  --color-paper-dim: #c9c6b8;
+  --color-felt: #1f6d45;
+  --color-felt-dim: #163f2b;
+  --color-lime: #9fe85b;
+  --color-ember: #e2593c;
+  --color-mute: #8b9490;
+
+  --font-display: 'Fraunces Variable', ui-serif, Georgia, serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
 
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
 }
 
 html,
@@ -12,7 +33,22 @@ body,
 }
 
 body {
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
-  background-color: #0f1115;
-  color: #e5e7eb;
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  font-feature-settings: 'ss01' 1;
+}
+
+::selection {
+  background-color: var(--color-lime);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-lime);
+  outline-offset: 2px;
+}
+
+.font-tabular {
+  font-variant-numeric: tabular-nums;
 }
