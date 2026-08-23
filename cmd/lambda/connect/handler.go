@@ -2,17 +2,21 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/kevinfinalboss/ServerlessMate/internal/auth"
 	"github.com/kevinfinalboss/ServerlessMate/internal/store"
+	"github.com/kevinfinalboss/ServerlessMate/internal/ws"
 )
 
 type deps struct {
 	games       store.GameStore
 	connections store.ConnectionStore
 	validator   auth.Validator
+	broadcaster ws.Broadcaster
 	newGuestID  func() string
 	now         func() time.Time
 	graceMs     int64
@@ -41,6 +45,10 @@ func handle(ctx context.Context, d deps, connectionID, token, gameID string) err
 
 	if err := d.connections.PutConnection(ctx, conn); err != nil {
 		return fmt.Errorf("connect: put connection: %w", err)
+	}
+
+	if err := sendWelcome(ctx, d, conn); err != nil {
+		return fmt.Errorf("connect: send welcome: %w", err)
 	}
 	return nil
 }
@@ -74,4 +82,21 @@ func resolveRole(ctx context.Context, d deps, gameID, playerID string) (string, 
 		return store.RolePlayer, nil
 	}
 	return store.RoleSpectator, nil
+}
+
+func sendWelcome(ctx context.Context, d deps, conn *store.Connection) error {
+	payload, err := json.Marshal(map[string]any{
+		"type":     "connected",
+		"playerId": conn.PlayerID,
+		"isGuest":  conn.IsGuest,
+		"gameId":   conn.GameID,
+		"role":     conn.Role,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal welcome: %w", err)
+	}
+	if err := d.broadcaster.Send(ctx, conn.ConnectionID, payload); err != nil && !errors.Is(err, ws.ErrConnectionGone) {
+		return fmt.Errorf("send welcome: %w", err)
+	}
+	return nil
 }
