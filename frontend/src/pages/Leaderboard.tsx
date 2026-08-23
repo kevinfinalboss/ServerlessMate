@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useGameSocket } from '../lib/GameSocketProvider'
+import { useTranslation } from '../lib/i18n'
 import { isType } from '../lib/types'
 import type { LeaderboardEntry, LeaderboardMessage } from '../lib/types'
 
 export function Leaderboard() {
   const { connected, lastMessage, send } = useGameSocket()
+  const { t } = useTranslation()
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
 
   useEffect(() => {
@@ -19,17 +21,18 @@ export function Leaderboard() {
 
   return (
     <div className="mx-auto max-w-xl p-6">
-      <h1 className="mb-4 text-xl font-semibold text-white">Leaderboard</h1>
-      <ol className="divide-y divide-gray-800 rounded-md border border-gray-800 bg-gray-900">
+      <h1 className="mb-4 font-display text-2xl font-medium text-paper">{t('leaderboard.title')}</h1>
+      <ol className="divide-y divide-ink-line overflow-hidden rounded-2xl border border-ink-line bg-ink-raised">
         {entries.map((entry, i) => (
-          <li key={entry.playerId} className="flex items-center justify-between px-4 py-2 text-sm text-gray-200">
+          <li key={entry.playerId} className="flex items-center justify-between px-4 py-3 text-sm text-paper">
             <span>
-              #{i + 1} {entry.username}
+              <span className="mr-2 font-mono text-mute">#{i + 1}</span>
+              {entry.username}
             </span>
-            <span className="font-mono text-emerald-400">{entry.rating}</span>
+            <span className="font-mono font-tabular text-lime">{entry.rating}</span>
           </li>
         ))}
-        {entries.length === 0 && <li className="px-4 py-3 text-sm text-gray-500">Sem dados ainda.</li>}
+        {entries.length === 0 && <li className="px-4 py-4 text-sm text-mute">{t('leaderboard.empty')}</li>}
       </ol>
     </div>
   )

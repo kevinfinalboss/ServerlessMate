@@ -1,26 +1,36 @@
 import { NavLink } from 'react-router-dom'
+import { Wordmark } from './Wordmark'
+import { LanguageToggle } from './LanguageToggle'
+import { useTranslation } from '../lib/i18n'
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `px-3 py-2 rounded-md text-sm font-medium ${
-    isActive ? 'bg-emerald-600 text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+  `rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+    isActive ? 'bg-felt text-paper' : 'text-mute hover:text-paper'
   }`
 
 export function NavBar() {
+  const { t } = useTranslation()
+
   return (
-    <nav className="flex items-center gap-2 border-b border-gray-800 px-4 py-3">
-      <span className="mr-4 text-lg font-semibold text-white">ServerlessMate</span>
-      <NavLink to="/" end className={linkClass}>
-        Lobby
-      </NavLink>
-      <NavLink to="/leaderboard" className={linkClass}>
-        Leaderboard
-      </NavLink>
-      <NavLink to="/history" className={linkClass}>
-        History
-      </NavLink>
-      <NavLink to="/profile" className={linkClass}>
-        Profile
-      </NavLink>
+    <nav className="flex items-center justify-between gap-4 border-b border-ink-line px-4 py-3 sm:px-6">
+      <div className="flex items-center gap-6">
+        <Wordmark />
+        <div className="hidden items-center gap-1 sm:flex">
+          <NavLink to="/play" className={linkClass}>
+            {t('nav.play')}
+          </NavLink>
+          <NavLink to="/leaderboard" className={linkClass}>
+            {t('nav.leaderboard')}
+          </NavLink>
+          <NavLink to="/history" className={linkClass}>
+            {t('nav.history')}
+          </NavLink>
+          <NavLink to="/profile" className={linkClass}>
+            {t('nav.profile')}
+          </NavLink>
+        </div>
+      </div>
+      <LanguageToggle />
     </nav>
   )
 }

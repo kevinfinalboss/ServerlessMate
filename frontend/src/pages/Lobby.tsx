@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGameSocket } from '../lib/GameSocketProvider'
-import { clearToken, isGuest, setActiveGameId, setToken } from '../lib/session'
+import { useTranslation } from '../lib/i18n'
+import { isGuest, setActiveGameId } from '../lib/session'
 import { isGameState, isType } from '../lib/types'
 import type { MatchFoundMessage, QueueJoinedMessage } from '../lib/types'
 
@@ -10,15 +11,15 @@ const TIME_CONTROLS = ['3+0', '5+0', '10+0']
 export function Lobby() {
   const navigate = useNavigate()
   const { connected, lastMessage, send } = useGameSocket()
+  const { t } = useTranslation()
   const [timeControl, setTimeControl] = useState(TIME_CONTROLS[1])
   const [level, setLevel] = useState<'easy' | 'hard'>('easy')
   const [status, setStatus] = useState<string | null>(null)
-  const [tokenInput, setTokenInput] = useState('')
 
   useEffect(() => {
     if (!lastMessage) return
     if (isType<QueueJoinedMessage>(lastMessage, 'queueJoined')) {
-      setStatus('Procurando adversário...')
+      setStatus(t('play.status.searching'))
       return
     }
     if (isType<MatchFoundMessage>(lastMessage, 'matchFound')) {
@@ -30,77 +31,35 @@ export function Lobby() {
       setActiveGameId(lastMessage.gameId)
       navigate('/game')
     }
-  }, [lastMessage, navigate])
+  }, [lastMessage, navigate, t])
 
   function joinQueue() {
-    setStatus('Entrando na fila...')
+    setStatus(t('play.status.searching'))
     send({ action: 'joinQueue', timeControl })
   }
 
   function playVsAI() {
-    setStatus('Criando partida contra a IA...')
+    setStatus(t('play.status.creatingAI'))
     send({ action: 'start', level })
-  }
-
-  function saveToken() {
-    if (tokenInput.trim()) {
-      setToken(tokenInput.trim())
-      window.location.reload()
-    }
-  }
-
-  function logout() {
-    clearToken()
-    window.location.reload()
   }
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-6 p-6">
-      <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-        <p className="text-sm text-gray-400">
-          Status da conexão:{' '}
-          <span className={connected ? 'text-emerald-400' : 'text-red-400'}>
-            {connected ? 'conectado' : 'desconectado'}
+      <div className="rounded-2xl border border-ink-line bg-ink-raised p-5">
+        <p className="text-sm text-mute">
+          {t('play.connectionStatus')}:{' '}
+          <span className={connected ? 'text-lime' : 'text-ember'}>
+            {connected ? t('play.connected') : t('play.disconnected')}
           </span>
         </p>
-        {isGuest() ? (
-          <div className="mt-3 flex gap-2">
-            <input
-              className="flex-1 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
-              placeholder="Cole um token JWT do Cognito (opcional)"
-              value={tokenInput}
-              onChange={(e) => setTokenInput(e.target.value)}
-            />
-            <button
-              onClick={saveToken}
-              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-            >
-              Entrar
-            </button>
-          </div>
-        ) : (
-          <div className="mt-3 flex items-center justify-between">
-            <span className="text-sm text-gray-300">Autenticado</span>
-            <button
-              onClick={logout}
-              className="rounded-md bg-gray-800 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700"
-            >
-              Sair
-            </button>
-          </div>
-        )}
-        {isGuest() && (
-          <p className="mt-2 text-xs text-gray-500">
-            Convidados podem jogar contra outro humano, mas não contra a IA nem afetam rating.
-          </p>
-        )}
+        {isGuest() && <p className="mt-2 text-xs text-mute">{t('play.guestNotice')}</p>}
       </div>
 
-      <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-        <h2 className="mb-3 text-lg font-semibold text-white">Jogar contra outro jogador</h2>
+      <div className="rounded-2xl border border-ink-line bg-ink-raised p-5">
+        <h2 className="mb-3 font-display text-lg font-medium text-paper">{t('play.vsHuman.title')}</h2>
         <div className="flex items-center gap-3">
           <select
-            className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+            className="rounded-lg border border-ink-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-lime"
             value={timeControl}
             onChange={(e) => setTimeControl(e.target.value)}
           >
@@ -113,39 +72,39 @@ export function Lobby() {
           <button
             onClick={joinQueue}
             disabled={!connected}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+            className="rounded-full bg-lime px-4 py-2 text-sm font-semibold text-ink transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
           >
-            Entrar na fila
+            {t('play.vsHuman.cta')}
           </button>
         </div>
       </div>
 
-      <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-        <h2 className="mb-3 text-lg font-semibold text-white">Jogar contra a IA</h2>
+      <div className="rounded-2xl border border-ink-line bg-ink-raised p-5">
+        <h2 className="mb-3 font-display text-lg font-medium text-paper">{t('play.vsAI.title')}</h2>
         {isGuest() ? (
-          <p className="text-sm text-gray-500">Faça login pra jogar contra a IA.</p>
+          <p className="text-sm text-mute">{t('play.vsAI.loginRequired')}</p>
         ) : (
           <div className="flex items-center gap-3">
             <select
-              className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+              className="rounded-lg border border-ink-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-lime"
               value={level}
               onChange={(e) => setLevel(e.target.value as 'easy' | 'hard')}
             >
-              <option value="easy">Fácil</option>
-              <option value="hard">Difícil</option>
+              <option value="easy">{t('play.vsAI.easy')}</option>
+              <option value="hard">{t('play.vsAI.hard')}</option>
             </select>
             <button
               onClick={playVsAI}
               disabled={!connected}
-              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              className="rounded-full bg-lime px-4 py-2 text-sm font-semibold text-ink transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
             >
-              Jogar
+              {t('play.vsAI.cta')}
             </button>
           </div>
         )}
       </div>
 
-      {status && <p className="text-center text-sm text-gray-400">{status}</p>}
+      {status && <p className="text-center text-sm text-mute">{status}</p>}
     </div>
   )
 }

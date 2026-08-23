@@ -4,6 +4,7 @@ import { Chessboard } from 'react-chessboard'
 import type { PieceDropHandlerArgs } from 'react-chessboard'
 import { Chess } from 'chess.js'
 import { useGameSocket } from '../lib/GameSocketProvider'
+import { useTranslation } from '../lib/i18n'
 import { clearActiveGameId, getActiveGameId, getPlayerId } from '../lib/session'
 
 const AI_PLAYER_ID = 'AI'
@@ -18,6 +19,7 @@ function formatClock(ms: number) {
 export function Game() {
   const navigate = useNavigate()
   const { identity, game, chat, error, dismissError, send } = useGameSocket()
+  const { t } = useTranslation()
   const [chatInput, setChatInput] = useState('')
   const aiTriggeredForFEN = useRef<string | null>(null)
 
@@ -25,7 +27,7 @@ export function Game() {
 
   useEffect(() => {
     if (!getActiveGameId()) {
-      navigate('/')
+      navigate('/play')
     }
   }, [navigate])
 
@@ -90,11 +92,11 @@ export function Game() {
 
   function leaveGame() {
     clearActiveGameId()
-    navigate('/')
+    navigate('/play')
   }
 
   if (!game) {
-    return <div className="p-6 text-center text-gray-400">Carregando partida...</div>
+    return <div className="p-6 text-center text-sm text-mute">{t('game.loading')}</div>
   }
 
   const isOver = game.status !== 'in_progress'
@@ -103,45 +105,65 @@ export function Game() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6 md:flex-row">
       <div className="flex-1">
-        <Chessboard
-          options={{
-            id: 'main-board',
-            position: game.fen,
-            boardOrientation: myColor ?? 'white',
-            onPieceDrop,
-            allowDragging: isMyTurn && !isOver,
-          }}
-        />
-        <div className="mt-4 flex items-center justify-between text-white">
-          <span>Brancas: {formatClock(game.whiteTimeMs)}</span>
-          <span>Pretas: {formatClock(game.blackTimeMs)}</span>
+        <div className="overflow-hidden rounded-2xl border border-ink-line bg-ink-raised p-3">
+          <Chessboard
+            options={{
+              id: 'main-board',
+              position: game.fen,
+              boardOrientation: myColor ?? 'white',
+              onPieceDrop,
+              allowDragging: isMyTurn && !isOver,
+              darkSquareStyle: { backgroundColor: 'var(--color-felt)' },
+              lightSquareStyle: { backgroundColor: 'var(--color-paper)' },
+            }}
+          />
         </div>
-        {game.comment && <p className="mt-2 text-sm italic text-emerald-400">"{game.comment}"</p>}
+        <div className="mt-4 flex items-center justify-between font-mono font-tabular text-paper">
+          <span>
+            {t('game.white')}: {formatClock(game.whiteTimeMs)}
+          </span>
+          <span>
+            {t('game.black')}: {formatClock(game.blackTimeMs)}
+          </span>
+        </div>
+        {game.comment && <p className="mt-2 text-sm text-lime italic">&ldquo;{game.comment}&rdquo;</p>}
         {isOver ? (
-          <div className="mt-4 rounded-md bg-gray-800 p-3 text-center text-white">
-            <p className="font-semibold">Partida encerrada: {game.status}</p>
-            {game.winner && <p className="text-sm text-gray-400">Vencedor: {game.winner}</p>}
-            <button onClick={leaveGame} className="mt-2 rounded-md bg-emerald-600 px-4 py-1.5 text-sm">
-              Voltar pro lobby
+          <div className="mt-4 rounded-2xl border border-ink-line bg-ink-raised p-4 text-center">
+            <p className="font-display font-medium text-paper">
+              {t('game.over')}: {game.status}
+            </p>
+            {game.winner && (
+              <p className="mt-1 text-sm text-mute">
+                {t('game.winner')}: {game.winner}
+              </p>
+            )}
+            <button
+              onClick={leaveGame}
+              className="mt-3 rounded-full bg-lime px-4 py-1.5 text-sm font-semibold text-ink"
+            >
+              {t('game.backToLobby')}
             </button>
           </div>
         ) : (
           <div className="mt-4 flex gap-2">
-            <button onClick={resign} className="rounded-md bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-600">
-              Desistir
+            <button
+              onClick={resign}
+              className="rounded-full bg-ember/90 px-3 py-1.5 text-sm font-medium text-ink hover:bg-ember"
+            >
+              {t('game.resign')}
             </button>
             <button
               onClick={offerDraw}
-              className="rounded-md bg-gray-700 px-3 py-1.5 text-sm text-white hover:bg-gray-600"
+              className="rounded-full bg-ink-line px-3 py-1.5 text-sm font-medium text-paper hover:bg-felt"
             >
-              Oferecer empate
+              {t('game.offerDraw')}
             </button>
             {opponentOfferedDraw && (
               <button
                 onClick={acceptDraw}
-                className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm text-white hover:bg-emerald-600"
+                className="rounded-full bg-lime px-3 py-1.5 text-sm font-semibold text-ink"
               >
-                Aceitar empate
+                {t('game.acceptDraw')}
               </button>
             )}
           </div>
@@ -149,25 +171,28 @@ export function Game() {
       </div>
 
       <div className="flex w-full flex-col md:w-72">
-        <div className="flex-1 overflow-y-auto rounded-md border border-gray-800 bg-gray-900 p-3">
-          {chat.length === 0 && <p className="text-sm text-gray-500">Sem mensagens ainda.</p>}
+        <div className="flex-1 overflow-y-auto rounded-2xl border border-ink-line bg-ink-raised p-3">
+          {chat.length === 0 && <p className="text-sm text-mute">{t('game.noMessages')}</p>}
           {chat.map((msg, i) => (
-            <p key={i} className="mb-1 text-sm text-gray-300">
-              <span className="font-semibold text-gray-500">{msg.playerId}: </span>
+            <p key={i} className="mb-1 text-sm text-paper">
+              <span className="font-medium text-mute">{msg.playerId}: </span>
               {msg.message}
             </p>
           ))}
         </div>
         <div className="mt-2 flex gap-2">
           <input
-            className="flex-1 rounded-md border border-gray-700 bg-gray-800 px-2 py-1.5 text-sm text-white"
+            className="flex-1 rounded-lg border border-ink-line bg-ink px-2 py-1.5 text-sm text-paper outline-none focus:border-lime"
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && sendChat()}
-            placeholder="Mensagem"
+            placeholder={t('game.chatPlaceholder')}
           />
-          <button onClick={sendChat} className="rounded-md bg-gray-700 px-3 py-1.5 text-sm text-white hover:bg-gray-600">
-            Enviar
+          <button
+            onClick={sendChat}
+            className="rounded-lg bg-ink-line px-3 py-1.5 text-sm font-medium text-paper hover:bg-felt"
+          >
+            {t('game.send')}
           </button>
         </div>
       </div>
@@ -175,7 +200,7 @@ export function Game() {
       {error && (
         <button
           onClick={dismissError}
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-red-800 px-4 py-2 text-sm text-white shadow-lg"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-ember px-4 py-2 text-sm font-medium text-ink shadow-lg"
         >
           {error}
         </button>

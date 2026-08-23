@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useGameSocket } from '../lib/GameSocketProvider'
+import { useTranslation } from '../lib/i18n'
 import { isType } from '../lib/types'
-import type { HistoryEntry, HistoryMessage, ReplayMessage } from '../lib/types'
+import type { HistoryEntry, HistoryMessage, ReplayMessage, Result } from '../lib/types'
 
-const RESULT_COLOR: Record<string, string> = {
-  win: 'text-emerald-400',
-  loss: 'text-red-400',
-  draw: 'text-gray-400',
+const RESULT_COLOR: Record<Result, string> = {
+  win: 'text-lime',
+  loss: 'text-ember',
+  draw: 'text-mute',
 }
 
 export function History() {
   const { connected, lastMessage, send } = useGameSocket()
+  const { t } = useTranslation()
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [replay, setReplay] = useState<ReplayMessage | null>(null)
 
@@ -35,27 +37,27 @@ export function History() {
 
   return (
     <div className="mx-auto max-w-2xl p-6">
-      <h1 className="mb-4 text-xl font-semibold text-white">Histórico</h1>
-      <ul className="divide-y divide-gray-800 rounded-md border border-gray-800 bg-gray-900">
+      <h1 className="mb-4 font-display text-2xl font-medium text-paper">{t('history.title')}</h1>
+      <ul className="divide-y divide-ink-line overflow-hidden rounded-2xl border border-ink-line bg-ink-raised">
         {entries.map((entry) => (
-          <li key={entry.gameId} className="flex items-center justify-between px-4 py-2 text-sm">
-            <span className={RESULT_COLOR[entry.result]}>{entry.result}</span>
-            <span className="text-gray-400">vs {entry.vsAI ? 'IA' : entry.opponentId}</span>
+          <li key={entry.gameId} className="flex items-center justify-between px-4 py-3 text-sm">
+            <span className={`font-medium ${RESULT_COLOR[entry.result]}`}>{t(`history.result.${entry.result}`)}</span>
+            <span className="text-mute">vs {entry.vsAI ? t('history.vsAI') : entry.opponentId}</span>
             <button
               onClick={() => viewReplay(entry.gameId)}
-              className="rounded-md bg-gray-700 px-2 py-1 text-xs text-white hover:bg-gray-600"
+              className="rounded-full bg-ink-line px-3 py-1 text-xs font-medium text-paper hover:bg-felt"
             >
-              Ver PGN
+              {t('history.viewPgn')}
             </button>
           </li>
         ))}
-        {entries.length === 0 && <li className="px-4 py-3 text-sm text-gray-500">Nenhuma partida ainda.</li>}
+        {entries.length === 0 && <li className="px-4 py-4 text-sm text-mute">{t('history.empty')}</li>}
       </ul>
 
       {replay && (
-        <div className="mt-4 rounded-md border border-gray-800 bg-gray-900 p-4">
-          <p className="mb-2 text-sm text-gray-400">PGN — {replay.gameId}</p>
-          <pre className="whitespace-pre-wrap text-sm text-gray-200">{replay.pgn}</pre>
+        <div className="mt-4 rounded-2xl border border-ink-line bg-ink-raised p-4">
+          <p className="mb-2 font-mono text-xs text-mute">{replay.gameId}</p>
+          <pre className="font-mono text-sm whitespace-pre-wrap text-paper">{replay.pgn}</pre>
         </div>
       )}
     </div>
