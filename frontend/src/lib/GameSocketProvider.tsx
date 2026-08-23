@@ -14,6 +14,7 @@ interface GameSocketValue {
   dismissError: () => void
   lastMessage: ServerMessage | null
   send: (payload: Record<string, unknown>) => void
+  connect: () => void
 }
 
 const GameSocketContext = createContext<GameSocketValue | null>(null)
@@ -27,8 +28,6 @@ export function GameSocketProvider({ children }: { children: ReactNode }) {
   const [lastMessage, setLastMessage] = useState<ServerMessage | null>(null)
 
   useEffect(() => {
-    socket.connect()
-
     const offOpen = socket.onOpen(() => setConnected(true))
     const offClose = socket.onClose(() => setConnected(false))
     const offMessage = socket.onMessage((msg) => {
@@ -63,6 +62,7 @@ export function GameSocketProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const dismissError = useCallback(() => setError(null), [])
+  const connect = useCallback(() => socket.connect(), [])
 
   const value: GameSocketValue = {
     connected,
@@ -73,6 +73,7 @@ export function GameSocketProvider({ children }: { children: ReactNode }) {
     dismissError,
     lastMessage,
     send,
+    connect,
   }
 
   return <GameSocketContext.Provider value={value}>{children}</GameSocketContext.Provider>
