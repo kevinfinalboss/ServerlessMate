@@ -179,6 +179,49 @@ func TestGetOrCreatePlayer_GetItemError(t *testing.T) {
 	client.AssertNotCalled(t, "PutItem")
 }
 
+func TestUpdateProfile_Success(t *testing.T) {
+	want := samplePlayer()
+	item, err := attributevalue.MarshalMap(want)
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBUpdateAPI)
+	client.On("UpdateItem", mock.Anything, mock.MatchedBy(func(in *dynamodb.UpdateItemInput) bool {
+		return *in.TableName == "Players" &&
+			in.ExpressionAttributeValues[":visibility"].(*types.AttributeValueMemberS).Value == "friends" &&
+			in.ExpressionAttributeValues[":country"].(*types.AttributeValueMemberS).Value == "BR"
+	})).Return(&dynamodb.UpdateItemOutput{}, nil)
+	client.On("GetItem", mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{Item: item}, nil)
+
+	got, err := newTestPlayerStore(client).UpdateProfile(context.Background(), "player-1", ProfileUpdate{
+		Visibility: "friends",
+		Country:    "BR",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestUpdateProfile_NotFound(t *testing.T) {
+	client := new(mockDynamoDBUpdateAPI)
+	client.On("UpdateItem", mock.Anything, mock.Anything).
+		Return(&dynamodb.UpdateItemOutput{}, &types.ConditionalCheckFailedException{})
+
+	_, err := newTestPlayerStore(client).UpdateProfile(context.Background(), "player-1", ProfileUpdate{})
+
+	assert.ErrorIs(t, err, ErrPlayerNotFound)
+}
+
+func TestUpdateProfile_Error(t *testing.T) {
+	client := new(mockDynamoDBUpdateAPI)
+	client.On("UpdateItem", mock.Anything, mock.Anything).
+		Return(&dynamodb.UpdateItemOutput{}, errors.New("network error"))
+
+	_, err := newTestPlayerStore(client).UpdateProfile(context.Background(), "player-1", ProfileUpdate{})
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrPlayerNotFound)
+}
+
 func TestRecordGameResult(t *testing.T) {
 	cases := []struct {
 		name    string
