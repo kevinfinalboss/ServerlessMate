@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useGameSocket } from '../lib/GameSocketProvider'
 import { useTranslation } from '../lib/i18n'
 import { isType } from '../lib/types'
@@ -25,10 +26,10 @@ export function Leaderboard() {
       <ol className="divide-y divide-ink-line overflow-hidden rounded-2xl border border-ink-line bg-ink-raised">
         {entries.map((entry, i) => (
           <li key={entry.playerId} className="flex items-center justify-between px-4 py-3 text-sm text-paper">
-            <span>
+            <Link to={`/profile/${entry.playerId}`} className="hover:text-lime">
               <span className="mr-2 font-mono text-mute">#{i + 1}</span>
               {entry.username}
-            </span>
+            </Link>
             <span className="font-mono font-tabular text-lime">{entry.rating}</span>
           </li>
         ))}
