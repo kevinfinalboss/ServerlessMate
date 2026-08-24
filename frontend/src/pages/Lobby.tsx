@@ -146,12 +146,9 @@ export function Lobby() {
           <h1 className="font-display text-2xl font-medium text-paper">{t('dashboard.greeting')}</h1>
           {isGuest() && <p className="mt-1 text-xs text-mute">{t('play.guestNotice')}</p>}
         </div>
-        <p className="text-sm text-mute">
-          {t('play.connectionStatus')}:{' '}
-          <span className={connected ? 'text-lime' : 'text-ember'}>
-            {connected ? t('play.connected') : t('play.disconnected')}
-          </span>
-        </p>
+        {!connected && (
+          <p className="rounded-full bg-ember/10 px-3 py-1 text-sm text-ember">{t('play.disconnected')}</p>
+        )}
       </header>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -237,7 +234,7 @@ export function Lobby() {
                     <span className={`font-medium ${RESULT_COLOR[entry.result]}`}>
                       {t(`history.result.${entry.result}`)}
                     </span>
-                    <span className="text-mute">{entry.vsAI ? t('history.vsAI') : entry.opponentId}</span>
+                    <span className="text-mute">{entry.vsAI ? t('history.vsAI') : entry.opponentUsername}</span>
                   </li>
                 ))}
               </ul>
