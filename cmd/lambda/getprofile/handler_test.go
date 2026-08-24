@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,6 +52,12 @@ func (m *mockPlayerStore) GetPlayer(ctx context.Context, playerID string) (*stor
 
 func (m *mockPlayerStore) GetOrCreatePlayer(ctx context.Context, playerID string, now int64) (*store.Player, error) {
 	args := m.Called(ctx, playerID, now)
+	p, _ := args.Get(0).(*store.Player)
+	return p, args.Error(1)
+}
+
+func (m *mockPlayerStore) UpdateProfile(ctx context.Context, playerID string, update store.ProfileUpdate) (*store.Player, error) {
+	args := m.Called(ctx, playerID, update)
 	p, _ := args.Get(0).(*store.Player)
 	return p, args.Error(1)
 }
@@ -147,6 +154,8 @@ func TestHandle_OtherProfile_Public(t *testing.T) {
 		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
 	players.On("GetPlayer", mock.Anything, "player-2").
 		Return(&store.Player{PlayerID: "player-2", Username: "carlsen", Visibility: "public", Rating: 2800}, nil)
+	friendships.On("GetFriendship", mock.Anything, "player-1", "player-2").Return(nil, nil)
+	friendships.On("GetFriendship", mock.Anything, "player-2", "player-1").Return(nil, nil)
 	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
 		var resp response
 		require.NoError(t, json.Unmarshal(payload, &resp))
@@ -171,6 +180,7 @@ func TestHandle_OtherProfile_FriendsOnly_NotFriends(t *testing.T) {
 	players.On("GetPlayer", mock.Anything, "player-2").
 		Return(&store.Player{PlayerID: "player-2", Username: "carlsen", Visibility: "friends", Rating: 2800}, nil)
 	friendships.On("GetFriendship", mock.Anything, "player-1", "player-2").Return(nil, nil)
+	friendships.On("GetFriendship", mock.Anything, "player-2", "player-1").Return(nil, nil)
 	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
 		var resp response
 		require.NoError(t, json.Unmarshal(payload, &resp))
@@ -207,6 +217,142 @@ func TestHandle_OtherProfile_FriendsOnly_Accepted(t *testing.T) {
 	err := handle(context.Background(), d, "conn-1", []byte(`{"playerId":"player-2"}`))
 
 	require.NoError(t, err)
+}
+
+func TestHandle_OtherProfile_PendingOutgoing(t *testing.T) {
+	conns := new(mockConnectionStore)
+	players := new(mockPlayerStore)
+	friendships := new(mockFriendshipStore)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").
+		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
+	players.On("GetPlayer", mock.Anything, "player-2").
+		Return(&store.Player{PlayerID: "player-2", Username: "carlsen", Visibility: "public"}, nil)
+	friendships.On("GetFriendship", mock.Anything, "player-1", "player-2").
+		Return(&store.Friendship{Status: store.FriendshipPending}, nil)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		var resp response
+		require.NoError(t, json.Unmarshal(payload, &resp))
+		return resp.FriendshipStatus == "pendingOutgoing"
+	})).Return(nil)
+
+	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"playerId":"player-2"}`))
+
+	require.NoError(t, err)
+	friendships.AssertNotCalled(t, "GetFriendship", mock.Anything, "player-2", "player-1")
+}
+
+func TestHandle_OtherProfile_PendingIncoming(t *testing.T) {
+	conns := new(mockConnectionStore)
+	players := new(mockPlayerStore)
+	friendships := new(mockFriendshipStore)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").
+		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
+	players.On("GetPlayer", mock.Anything, "player-2").
+		Return(&store.Player{PlayerID: "player-2", Username: "carlsen", Visibility: "public"}, nil)
+	friendships.On("GetFriendship", mock.Anything, "player-1", "player-2").Return(nil, nil)
+	friendships.On("GetFriendship", mock.Anything, "player-2", "player-1").
+		Return(&store.Friendship{Status: store.FriendshipPending}, nil)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		var resp response
+		require.NoError(t, json.Unmarshal(payload, &resp))
+		return resp.FriendshipStatus == "pendingIncoming"
+	})).Return(nil)
+
+	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"playerId":"player-2"}`))
+
+	require.NoError(t, err)
+}
+
+func TestHandle_UpdateProfile_Success(t *testing.T) {
+	conns := new(mockConnectionStore)
+	players := new(mockPlayerStore)
+	friendships := new(mockFriendshipStore)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").
+		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
+	players.On("UpdateProfile", mock.Anything, "player-1", store.ProfileUpdate{
+		Visibility: "friends",
+		Country:    "BR",
+		Github:     "kevingomes",
+	}).Return(&store.Player{PlayerID: "player-1", Username: "kasparov", Visibility: "friends", Country: "BR", Github: "kevingomes"}, nil)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		var resp response
+		require.NoError(t, json.Unmarshal(payload, &resp))
+		return resp.Visible && resp.Country == "BR" && resp.Github == "kevingomes"
+	})).Return(nil)
+
+	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc}
+
+	body := []byte(`{"action":"updateProfile","visibility":"friends","country":"BR","github":"kevingomes"}`)
+	err := handle(context.Background(), d, "conn-1", body)
+
+	require.NoError(t, err)
+}
+
+func TestHandle_UpdateProfile_InvalidVisibility(t *testing.T) {
+	conns := new(mockConnectionStore)
+	players := new(mockPlayerStore)
+	friendships := new(mockFriendshipStore)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").
+		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		return strings.Contains(string(payload), "invalid visibility")
+	})).Return(nil)
+
+	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"updateProfile","visibility":"nobody"}`))
+
+	require.NoError(t, err)
+	players.AssertNotCalled(t, "UpdateProfile")
+}
+
+func TestHandle_UpdateProfile_NotFound(t *testing.T) {
+	conns := new(mockConnectionStore)
+	players := new(mockPlayerStore)
+	friendships := new(mockFriendshipStore)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").
+		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
+	players.On("UpdateProfile", mock.Anything, "player-1", mock.Anything).Return(nil, store.ErrPlayerNotFound)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		return strings.Contains(string(payload), "player not found")
+	})).Return(nil)
+
+	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"updateProfile"}`))
+
+	require.NoError(t, err)
+}
+
+func TestHandle_UpdateProfile_Error(t *testing.T) {
+	conns := new(mockConnectionStore)
+	players := new(mockPlayerStore)
+	friendships := new(mockFriendshipStore)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").
+		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
+	players.On("UpdateProfile", mock.Anything, "player-1", mock.Anything).Return(nil, errors.New("network error"))
+
+	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"updateProfile"}`))
+
+	require.Error(t, err)
 }
 
 func TestHandle_PlayerNotFound(t *testing.T) {
