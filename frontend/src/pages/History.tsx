@@ -49,7 +49,7 @@ export function History() {
                 t('history.vsAI')
               ) : (
                 <Link to={`/profile/${entry.opponentId}`} className="hover:text-lime">
-                  {entry.opponentId}
+                  {entry.opponentUsername}
                 </Link>
               )}
             </span>
