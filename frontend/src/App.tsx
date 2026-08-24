@@ -8,6 +8,7 @@ import { Game } from './pages/Game'
 import { Leaderboard } from './pages/Leaderboard'
 import { History } from './pages/History'
 import { Profile } from './pages/Profile'
+import { Friends } from './pages/Friends'
 
 export function App() {
   return (
@@ -20,6 +21,7 @@ export function App() {
         <Route path="/game" element={<Game />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/history" element={<History />} />
+        <Route path="/friends" element={<Friends />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/profile/:playerId" element={<Profile />} />
       </Route>
