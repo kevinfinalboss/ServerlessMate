@@ -73,6 +73,14 @@ module "friendships_table" {
   hash_key  = "playerId"
   range_key = "friendId"
 
+  global_secondary_indexes = [
+    {
+      name      = "FriendIDIndex"
+      hash_key  = "friendId"
+      range_key = "playerId"
+    },
+  ]
+
   tags = local.common_tags
 }
 
@@ -239,11 +247,13 @@ module "lambda_friends" {
   environment = {
     CONNECTIONS_TABLE = module.connections_table.table_name
     FRIENDSHIPS_TABLE = module.friendships_table.table_name
+    PLAYERS_TABLE     = module.players_table.table_name
   }
 
   dynamodb_table_arns = [
     module.connections_table.table_arn,
     module.friendships_table.table_arn,
+    module.players_table.table_arn,
   ]
 
   tags = local.common_tags
@@ -348,7 +358,7 @@ locals {
       function_name = module.lambda_aimove.function_name
       role_name     = module.lambda_aimove.role_name
     }],
-    [for rk in ["sendRequest", "acceptRequest", "block"] : {
+    [for rk in ["sendRequest", "acceptRequest", "block", "listFriends", "cancelRequest"] : {
       route_key     = rk
       invoke_arn    = module.lambda_friends.invoke_arn
       function_name = module.lambda_friends.function_name
