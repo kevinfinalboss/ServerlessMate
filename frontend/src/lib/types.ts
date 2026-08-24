@@ -56,6 +56,8 @@ export interface QueueLeftMessage {
   type: 'queueLeft'
 }
 
+export type FriendshipStatus = 'accepted' | 'pending' | 'pendingOutgoing' | 'pendingIncoming' | 'blocked' | ''
+
 export interface ProfileResponse {
   type?: never
   playerId: string
@@ -66,6 +68,12 @@ export interface ProfileResponse {
   losses?: number
   draws?: number
   gamesPlayed?: number
+  visibility?: 'public' | 'friends'
+  birthDate?: string
+  country?: string
+  github?: string
+  linkedIn?: string
+  friendshipStatus?: FriendshipStatus
 }
 
 export interface LeaderboardEntry {
@@ -84,6 +92,7 @@ export interface HistoryEntry {
   endedAt: number
   gameId: string
   opponentId: string
+  opponentUsername: string
   result: Result
   vsAI: boolean
 }
