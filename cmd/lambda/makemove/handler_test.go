@@ -83,6 +83,12 @@ func (m *mockPlayerStore) GetOrCreatePlayer(ctx context.Context, playerID string
 	return p, args.Error(1)
 }
 
+func (m *mockPlayerStore) UpdateProfile(ctx context.Context, playerID string, update store.ProfileUpdate) (*store.Player, error) {
+	args := m.Called(ctx, playerID, update)
+	p, _ := args.Get(0).(*store.Player)
+	return p, args.Error(1)
+}
+
 func (m *mockPlayerStore) RecordGameResult(ctx context.Context, playerID string, newRating int, outcome store.GameOutcome) error {
 	args := m.Called(ctx, playerID, newRating, outcome)
 	return args.Error(0)
