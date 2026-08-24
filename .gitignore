@@ -4,6 +4,10 @@
 *.out
 coverage.txt
 
+# Lambda build artifacts (Makefile)
+/build/
+/dist/
+
 # Terraform
 **/.terraform/
 *.tfstate
@@ -30,3 +34,6 @@ frontend/dist/
 
 # Claude Code (local-only settings, permissions per máquina)
 .claude/settings.local.json
+
+# Build tooling (kept local, not committed)
+Makefile
