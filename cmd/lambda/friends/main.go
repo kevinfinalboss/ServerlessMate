@@ -41,6 +41,7 @@ func handleEvent(ctx context.Context, event events.APIGatewayWebsocketProxyReque
 	d := deps{
 		connections: store.NewDynamoConnectionStore(dynamoClient, os.Getenv("CONNECTIONS_TABLE")),
 		friendships: store.NewDynamoFriendshipStore(dynamoClient, os.Getenv("FRIENDSHIPS_TABLE")),
+		players:     store.NewDynamoPlayerStore(dynamoClient, os.Getenv("PLAYERS_TABLE")),
 		broadcaster: ws.NewAPIGatewayBroadcaster(apiGwClient),
 		now:         time.Now,
 	}
