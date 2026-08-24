@@ -21,24 +21,27 @@ const (
 )
 
 type Friendship struct {
-	PlayerID  string           `dynamodbav:"playerId"`
-	FriendID  string           `dynamodbav:"friendId"`
-	Status    FriendshipStatus `dynamodbav:"status"`
-	CreatedAt int64            `dynamodbav:"createdAt"`
+	PlayerID  string           `json:"playerId" dynamodbav:"playerId"`
+	FriendID  string           `json:"friendId" dynamodbav:"friendId"`
+	Status    FriendshipStatus `json:"status" dynamodbav:"status"`
+	CreatedAt int64            `json:"createdAt" dynamodbav:"createdAt"`
 }
 
 type FriendshipStore interface {
 	GetFriendship(ctx context.Context, playerID, friendID string) (*Friendship, error)
 	ListFriendships(ctx context.Context, playerID string) ([]*Friendship, error)
+	ListIncomingRequests(ctx context.Context, playerID string) ([]*Friendship, error)
 	SendRequest(ctx context.Context, playerID, friendID string, at int64) error
 	AcceptRequest(ctx context.Context, playerID, friendID string, at int64) error
 	Block(ctx context.Context, playerID, friendID string, at int64) error
+	CancelRequest(ctx context.Context, playerA, playerB string) error
 }
 
 type dynamoDBFriendshipAPI interface {
 	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
+	DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
 	TransactWriteItems(ctx context.Context, params *dynamodb.TransactWriteItemsInput, optFns ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
 }
 
@@ -94,6 +97,35 @@ func (s *DynamoFriendshipStore) ListFriendships(ctx context.Context, playerID st
 		friendships[i] = &f
 	}
 	return friendships, nil
+}
+
+func (s *DynamoFriendshipStore) ListIncomingRequests(ctx context.Context, playerID string) ([]*Friendship, error) {
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              &s.tableName,
+		IndexName:              strPtr("FriendIDIndex"),
+		KeyConditionExpression: strPtr("friendId = :friendId"),
+		FilterExpression:       strPtr("#status = :pending"),
+		ExpressionAttributeNames: map[string]string{
+			"#status": "status",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":friendId": &types.AttributeValueMemberS{Value: playerID},
+			":pending":  &types.AttributeValueMemberS{Value: string(FriendshipPending)},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: list incoming requests: %w", err)
+	}
+
+	requests := make([]*Friendship, len(out.Items))
+	for i, item := range out.Items {
+		var f Friendship
+		if err := attributevalue.UnmarshalMap(item, &f); err != nil {
+			return nil, fmt.Errorf("store: unmarshal friendship: %w", err)
+		}
+		requests[i] = &f
+	}
+	return requests, nil
 }
 
 func (s *DynamoFriendshipStore) SendRequest(ctx context.Context, playerID, friendID string, at int64) error {
@@ -165,6 +197,35 @@ func (s *DynamoFriendshipStore) Block(ctx context.Context, playerID, friendID st
 	})
 	if err != nil {
 		return fmt.Errorf("store: block friendship: %w", err)
+	}
+	return nil
+}
+
+func (s *DynamoFriendshipStore) CancelRequest(ctx context.Context, playerA, playerB string) error {
+	if err := s.deletePendingRow(ctx, playerA, playerB); err != nil {
+		return err
+	}
+	return s.deletePendingRow(ctx, playerB, playerA)
+}
+
+func (s *DynamoFriendshipStore) deletePendingRow(ctx context.Context, playerID, friendID string) error {
+	_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: &s.tableName,
+		Key: map[string]types.AttributeValue{
+			"playerId": &types.AttributeValueMemberS{Value: playerID},
+			"friendId": &types.AttributeValueMemberS{Value: friendID},
+		},
+		ConditionExpression:      strPtr("#status = :pending"),
+		ExpressionAttributeNames: map[string]string{"#status": "status"},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":pending": &types.AttributeValueMemberS{Value: string(FriendshipPending)},
+		},
+	})
+	if err != nil {
+		if isConditionalCheckFailed(err) {
+			return nil
+		}
+		return fmt.Errorf("store: cancel friend request: %w", err)
 	}
 	return nil
 }
