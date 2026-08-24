@@ -35,6 +35,12 @@ func (m *mockDynamoDBFriendshipAPI) Query(ctx context.Context, params *dynamodb.
 	return out, args.Error(1)
 }
 
+func (m *mockDynamoDBFriendshipAPI) DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	args := m.Called(ctx, params)
+	out, _ := args.Get(0).(*dynamodb.DeleteItemOutput)
+	return out, args.Error(1)
+}
+
 func (m *mockDynamoDBFriendshipAPI) TransactWriteItems(ctx context.Context, params *dynamodb.TransactWriteItemsInput, optFns ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
 	args := m.Called(ctx, params)
 	out, _ := args.Get(0).(*dynamodb.TransactWriteItemsOutput)
@@ -106,6 +112,58 @@ func TestListFriendships_Error(t *testing.T) {
 	client.On("Query", mock.Anything, mock.Anything).Return(&dynamodb.QueryOutput{}, errors.New("network error"))
 
 	_, err := newTestFriendshipStore(client).ListFriendships(context.Background(), "player-1")
+
+	require.Error(t, err)
+}
+
+func TestListIncomingRequests_Success(t *testing.T) {
+	f1, err := attributevalue.MarshalMap(&Friendship{PlayerID: "player-2", FriendID: "player-1", Status: FriendshipPending})
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBFriendshipAPI)
+	client.On("Query", mock.Anything, mock.MatchedBy(func(in *dynamodb.QueryInput) bool {
+		return *in.TableName == "Friendships" && *in.IndexName == "FriendIDIndex"
+	})).Return(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{f1}}, nil)
+
+	got, err := newTestFriendshipStore(client).ListIncomingRequests(context.Background(), "player-1")
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "player-2", got[0].PlayerID)
+}
+
+func TestListIncomingRequests_Error(t *testing.T) {
+	client := new(mockDynamoDBFriendshipAPI)
+	client.On("Query", mock.Anything, mock.Anything).Return(&dynamodb.QueryOutput{}, errors.New("network error"))
+
+	_, err := newTestFriendshipStore(client).ListIncomingRequests(context.Background(), "player-1")
+
+	require.Error(t, err)
+}
+
+func TestCancelRequest_DeletesBothDirections(t *testing.T) {
+	client := new(mockDynamoDBFriendshipAPI)
+	client.On("DeleteItem", mock.Anything, mock.MatchedBy(func(in *dynamodb.DeleteItemInput) bool {
+		return in.Key["playerId"].(*types.AttributeValueMemberS).Value == "player-1" &&
+			in.Key["friendId"].(*types.AttributeValueMemberS).Value == "player-2"
+	})).Return(&dynamodb.DeleteItemOutput{}, &types.ConditionalCheckFailedException{})
+	client.On("DeleteItem", mock.Anything, mock.MatchedBy(func(in *dynamodb.DeleteItemInput) bool {
+		return in.Key["playerId"].(*types.AttributeValueMemberS).Value == "player-2" &&
+			in.Key["friendId"].(*types.AttributeValueMemberS).Value == "player-1"
+	})).Return(&dynamodb.DeleteItemOutput{}, nil)
+
+	err := newTestFriendshipStore(client).CancelRequest(context.Background(), "player-1", "player-2")
+
+	require.NoError(t, err)
+	client.AssertExpectations(t)
+}
+
+func TestCancelRequest_Error(t *testing.T) {
+	client := new(mockDynamoDBFriendshipAPI)
+	client.On("DeleteItem", mock.Anything, mock.Anything).
+		Return(&dynamodb.DeleteItemOutput{}, errors.New("network error"))
+
+	err := newTestFriendshipStore(client).CancelRequest(context.Background(), "player-1", "player-2")
 
 	require.Error(t, err)
 }
