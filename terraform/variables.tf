@@ -19,7 +19,7 @@ variable "artifact_bucket" {
 variable "artifact_version" {
   description = "Version folder under s3://<artifact_bucket>/lambda/<version>/<name>.zip consumed by every Lambda in this apply. Must match the Makefile's VERSION used to upload."
   type        = string
-  default     = "v0.0.8"
+  default     = "v0.1.0"
 }
 
 variable "domain_name" {
