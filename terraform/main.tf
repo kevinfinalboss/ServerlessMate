@@ -305,12 +305,14 @@ module "lambda_history" {
     CONNECTIONS_TABLE  = module.connections_table.table_name
     GAMES_TABLE        = module.games_table.table_name
     GAME_HISTORY_TABLE = module.game_history_table.table_name
+    PLAYERS_TABLE      = module.players_table.table_name
   }
 
   dynamodb_table_arns = [
     module.connections_table.table_arn,
     module.games_table.table_arn,
     module.game_history_table.table_arn,
+    module.players_table.table_arn,
   ]
 
   tags = local.common_tags
@@ -370,6 +372,12 @@ locals {
       function_name = module.lambda_joinqueue.function_name
       role_name     = module.lambda_joinqueue.role_name
     }],
+    [for rk in ["getProfile", "updateProfile"] : {
+      route_key     = rk
+      invoke_arn    = module.lambda_getprofile.invoke_arn
+      function_name = module.lambda_getprofile.function_name
+      role_name     = module.lambda_getprofile.role_name
+    }],
     [
       {
         route_key     = "$connect"
@@ -382,12 +390,6 @@ locals {
         invoke_arn    = module.lambda_disconnect.invoke_arn
         function_name = module.lambda_disconnect.function_name
         role_name     = module.lambda_disconnect.role_name
-      },
-      {
-        route_key     = "getProfile"
-        invoke_arn    = module.lambda_getprofile.invoke_arn
-        function_name = module.lambda_getprofile.function_name
-        role_name     = module.lambda_getprofile.role_name
       },
       {
         route_key     = "leaderboard"
