@@ -14,6 +14,7 @@ import (
 )
 
 const startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+const bandWidth = 200
 
 type deps struct {
 	queue       store.QueueStore
@@ -25,7 +26,7 @@ type deps struct {
 }
 
 func handle(ctx context.Context, d deps, self *store.QueueEntry) error {
-	waiting, err := d.queue.FindWaiting(ctx, self.MatchmakingKey, self.PlayerID)
+	waiting, err := findWaitingAcrossBands(ctx, d, self)
 	if err != nil {
 		return fmt.Errorf("matchmaker: find waiting player: %w", err)
 	}
@@ -62,6 +63,37 @@ func handle(ctx context.Context, d deps, self *store.QueueEntry) error {
 	}
 
 	return notifyBoth(ctx, d, waiting, self, game)
+}
+
+func findWaitingAcrossBands(ctx context.Context, d deps, self *store.QueueEntry) (*store.QueueEntry, error) {
+	for _, key := range candidateMatchmakingKeys(self.MatchmakingKey) {
+		waiting, err := d.queue.FindWaiting(ctx, key, self.PlayerID)
+		if err != nil {
+			return nil, err
+		}
+		if waiting != nil {
+			return waiting, nil
+		}
+	}
+	return nil, nil
+}
+
+func candidateMatchmakingKeys(matchmakingKey string) []string {
+	timeControl, bandStr, found := strings.Cut(matchmakingKey, "#")
+	if !found {
+		return []string{matchmakingKey}
+	}
+	band, err := strconv.ParseInt(bandStr, 10, 64)
+	if err != nil {
+		return []string{matchmakingKey}
+	}
+
+	keys := []string{matchmakingKey}
+	if band-bandWidth >= 0 {
+		keys = append(keys, fmt.Sprintf("%s#%d", timeControl, band-bandWidth))
+	}
+	keys = append(keys, fmt.Sprintf("%s#%d", timeControl, band+bandWidth))
+	return keys
 }
 
 func assignConnection(ctx context.Context, d deps, e *store.QueueEntry, gameID string) error {
