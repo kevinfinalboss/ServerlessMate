@@ -36,7 +36,7 @@ type Player struct {
 	GamesPlayed   int    `dynamodbav:"gamesPlayed"`
 	Visibility    string `dynamodbav:"visibility"`
 	CreatedAt     int64  `dynamodbav:"createdAt"`
-	LeaderboardPK string `dynamodbav:"leaderboardPK"`
+	LeaderboardPK string `dynamodbav:"leaderboardPK,omitempty"`
 }
 
 type PlayerStore interface {
