@@ -5,16 +5,17 @@
 @import '@fontsource/jetbrains-mono/500.css';
 
 @theme {
-  --color-ink: #14181a;
-  --color-ink-raised: #1d2321;
-  --color-ink-line: #2a3230;
-  --color-paper: #f3f1e7;
-  --color-paper-dim: #c9c6b8;
-  --color-felt: #1f6d45;
-  --color-felt-dim: #163f2b;
-  --color-lime: #9fe85b;
-  --color-ember: #e2593c;
-  --color-mute: #8b9490;
+  --color-ink: #05070a;
+  --color-ink-raised: #20242a;
+  --color-ink-line: #2e333b;
+  --color-paper: #f5f5f5;
+  --color-paper-dim: #abb0b6;
+  --color-felt: #3d2610;
+  --color-felt-dim: #26170a;
+  --color-lime: #ff9900;
+  --color-gold: #ffb000;
+  --color-ember: #f04438;
+  --color-mute: #8a8f98;
 
   --font-display: 'Fraunces Variable', ui-serif, Georgia, serif;
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
