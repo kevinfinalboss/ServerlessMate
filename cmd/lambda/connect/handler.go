@@ -34,13 +34,19 @@ func handle(ctx context.Context, d deps, connectionID, token, gameID string) err
 		IsGuest:      isGuest,
 	}
 
+	var activeGame *store.Game
 	if gameID != "" {
-		role, err := resolveRole(ctx, d, gameID, playerID)
-		if err != nil {
+		role, g, err := resolveRole(ctx, d, gameID, playerID)
+		switch {
+		case err == nil:
+			conn.GameID = gameID
+			conn.Role = role
+			activeGame = g
+		case errors.Is(err, store.ErrGameNotFound):
+			logger.Warn("stale gameId on connect, connecting without a game", "connectionId", connectionID, "gameId", gameID)
+		default:
 			return fmt.Errorf("connect: resolve role: %w", err)
 		}
-		conn.GameID = gameID
-		conn.Role = role
 	}
 
 	if err := d.connections.PutConnection(ctx, conn); err != nil {
@@ -49,6 +55,12 @@ func handle(ctx context.Context, d deps, connectionID, token, gameID string) err
 
 	if err := sendWelcome(ctx, d, conn); err != nil {
 		return fmt.Errorf("connect: send welcome: %w", err)
+	}
+
+	if activeGame != nil {
+		if err := sendGameState(ctx, d, connectionID, activeGame); err != nil {
+			return fmt.Errorf("connect: send game state: %w", err)
+		}
 	}
 	return nil
 }
@@ -65,23 +77,23 @@ func resolveIdentity(ctx context.Context, d deps, token string) (playerID string
 	return sub, false, nil
 }
 
-func resolveRole(ctx context.Context, d deps, gameID, playerID string) (string, error) {
+func resolveRole(ctx context.Context, d deps, gameID, playerID string) (string, *store.Game, error) {
 	g, err := d.games.GetGame(ctx, gameID)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if g.DisconnectedPlayerID == playerID && d.now().UnixMilli()-g.DisconnectedAt <= d.graceMs {
 		if err := d.games.ClearDisconnect(ctx, gameID, playerID); err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return store.RolePlayer, nil
+		return store.RolePlayer, g, nil
 	}
 
 	if playerID == g.Players.White || playerID == g.Players.Black {
-		return store.RolePlayer, nil
+		return store.RolePlayer, g, nil
 	}
-	return store.RoleSpectator, nil
+	return store.RoleSpectator, g, nil
 }
 
 func sendWelcome(ctx context.Context, d deps, conn *store.Connection) error {
@@ -97,6 +109,17 @@ func sendWelcome(ctx context.Context, d deps, conn *store.Connection) error {
 	}
 	if err := d.broadcaster.Send(ctx, conn.ConnectionID, payload); err != nil && !errors.Is(err, ws.ErrConnectionGone) {
 		return fmt.Errorf("send welcome: %w", err)
+	}
+	return nil
+}
+
+func sendGameState(ctx context.Context, d deps, connectionID string, g *store.Game) error {
+	payload, err := json.Marshal(g)
+	if err != nil {
+		return fmt.Errorf("marshal game state: %w", err)
+	}
+	if err := d.broadcaster.Send(ctx, connectionID, payload); err != nil && !errors.Is(err, ws.ErrConnectionGone) {
+		return fmt.Errorf("send game state: %w", err)
 	}
 	return nil
 }

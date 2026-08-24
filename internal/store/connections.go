@@ -20,7 +20,7 @@ const (
 
 type Connection struct {
 	ConnectionID string `dynamodbav:"connectionId"`
-	GameID       string `dynamodbav:"gameId"`
+	GameID       string `dynamodbav:"gameId,omitempty"`
 	PlayerID     string `dynamodbav:"playerId"`
 	IsGuest      bool   `dynamodbav:"isGuest"`
 	Role         string `dynamodbav:"role"`

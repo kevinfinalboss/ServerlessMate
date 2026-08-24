@@ -77,6 +77,12 @@ func (m *mockPlayerStore) GetPlayer(ctx context.Context, playerID string) (*stor
 	return p, args.Error(1)
 }
 
+func (m *mockPlayerStore) GetOrCreatePlayer(ctx context.Context, playerID string, now int64) (*store.Player, error) {
+	args := m.Called(ctx, playerID, now)
+	p, _ := args.Get(0).(*store.Player)
+	return p, args.Error(1)
+}
+
 func (m *mockPlayerStore) RecordGameResult(ctx context.Context, playerID string, newRating int, outcome store.GameOutcome) error {
 	args := m.Called(ctx, playerID, newRating, outcome)
 	return args.Error(0)
@@ -125,8 +131,8 @@ func baseGame() *store.Game {
 }
 
 func mockPlayers(games *mockPlayerStore) {
-	games.On("GetPlayer", mock.Anything, "player-1").Return(&store.Player{PlayerID: "player-1", Rating: 1200}, nil)
-	games.On("GetPlayer", mock.Anything, "player-2").Return(&store.Player{PlayerID: "player-2", Rating: 1200}, nil)
+	games.On("GetOrCreatePlayer", mock.Anything, "player-1", mock.Anything).Return(&store.Player{PlayerID: "player-1", Rating: 1200}, nil)
+	games.On("GetOrCreatePlayer", mock.Anything, "player-2", mock.Anything).Return(&store.Player{PlayerID: "player-2", Rating: 1200}, nil)
 }
 
 func playerConn(playerID string) *store.Connection {
@@ -346,7 +352,7 @@ func TestHandle_Resign_VsAI_SkipsRating(t *testing.T) {
 	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"resign"}`))
 
 	require.NoError(t, err)
-	players.AssertNotCalled(t, "GetPlayer")
+	players.AssertNotCalled(t, "GetOrCreatePlayer")
 	players.AssertNotCalled(t, "RecordGameResult")
 }
 
@@ -412,7 +418,7 @@ func TestHandle_Abandonment_StillWithinGrace(t *testing.T) {
 
 	require.NoError(t, err)
 	games.AssertExpectations(t)
-	players.AssertNotCalled(t, "GetPlayer")
+	players.AssertNotCalled(t, "GetOrCreatePlayer")
 }
 
 func TestHandle_Chat_Success(t *testing.T) {
@@ -541,7 +547,7 @@ func TestHandle_UpdateRatings_GetPlayerError(t *testing.T) {
 	conns.On("GetConnection", mock.Anything, "conn-1").Return(playerConn("player-2"), nil)
 	games.On("GetGame", mock.Anything, "game-1").Return(g, nil)
 	games.On("UpdateGame", mock.Anything, mock.Anything, startFEN).Return(nil)
-	players.On("GetPlayer", mock.Anything, "player-1").Return(nil, errors.New("network error"))
+	players.On("GetOrCreatePlayer", mock.Anything, "player-1", mock.Anything).Return(nil, errors.New("network error"))
 
 	d := deps{games: games, connections: conns, players: players, broadcaster: bc, now: fixedNow(time.UnixMilli(g.LastMoveAt))}
 
@@ -679,6 +685,25 @@ func TestHandle_GetGameError(t *testing.T) {
 	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"resign"}`))
 
 	require.Error(t, err)
+}
+
+func TestHandle_GameNotFound_NotifiesInsteadOfFailingSilently(t *testing.T) {
+	games := new(mockGameStore)
+	conns := new(mockConnectionStore)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").Return(playerConn("player-1"), nil)
+	games.On("GetGame", mock.Anything, "game-1").Return(nil, store.ErrGameNotFound)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		return strings.Contains(string(payload), "game no longer exists")
+	})).Return(nil)
+
+	d := deps{games: games, connections: conns, broadcaster: bc, now: fixedNow(time.Now())}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"resign"}`))
+
+	require.NoError(t, err)
+	bc.AssertExpectations(t)
 }
 
 func TestHandle_ListConnectionsError(t *testing.T) {

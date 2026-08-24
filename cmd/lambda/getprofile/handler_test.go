@@ -5,12 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kevinfinalboss/ServerlessMate/internal/store"
 )
+
+func fixedNow() func() time.Time {
+	return func() time.Time { return time.UnixMilli(1_700_000_000_000) }
+}
 
 type mockConnectionStore struct{ mock.Mock }
 
@@ -40,6 +45,12 @@ type mockPlayerStore struct{ mock.Mock }
 
 func (m *mockPlayerStore) GetPlayer(ctx context.Context, playerID string) (*store.Player, error) {
 	args := m.Called(ctx, playerID)
+	p, _ := args.Get(0).(*store.Player)
+	return p, args.Error(1)
+}
+
+func (m *mockPlayerStore) GetOrCreatePlayer(ctx context.Context, playerID string, now int64) (*store.Player, error) {
+	args := m.Called(ctx, playerID, now)
 	p, _ := args.Get(0).(*store.Player)
 	return p, args.Error(1)
 }
@@ -99,7 +110,7 @@ func TestHandle_OwnProfile_AlwaysFull(t *testing.T) {
 
 	conns.On("GetConnection", mock.Anything, "conn-1").
 		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
-	players.On("GetPlayer", mock.Anything, "player-1").
+	players.On("GetOrCreatePlayer", mock.Anything, "player-1", mock.Anything).
 		Return(&store.Player{PlayerID: "player-1", Username: "kasparov", Visibility: "friends", Rating: 1200}, nil)
 	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
 		var resp response
@@ -107,7 +118,7 @@ func TestHandle_OwnProfile_AlwaysFull(t *testing.T) {
 		return resp.Visible && resp.Rating == 1200
 	})).Return(nil)
 
-	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc}
+	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc, now: fixedNow()}
 
 	err := handle(context.Background(), d, "conn-1", []byte(`{}`))
 
@@ -223,6 +234,7 @@ func TestHandle_InvalidBody(t *testing.T) {
 
 	require.NoError(t, err)
 	players.AssertNotCalled(t, "GetPlayer")
+	players.AssertNotCalled(t, "GetOrCreatePlayer")
 }
 
 func TestHandle_GetConnectionError(t *testing.T) {
@@ -248,9 +260,9 @@ func TestHandle_GetPlayerError(t *testing.T) {
 
 	conns.On("GetConnection", mock.Anything, "conn-1").
 		Return(&store.Connection{ConnectionID: "conn-1", PlayerID: "player-1"}, nil)
-	players.On("GetPlayer", mock.Anything, "player-1").Return(nil, errors.New("network error"))
+	players.On("GetOrCreatePlayer", mock.Anything, "player-1", mock.Anything).Return(nil, errors.New("network error"))
 
-	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc}
+	d := deps{connections: conns, players: players, friendships: friendships, broadcaster: bc, now: fixedNow()}
 
 	err := handle(context.Background(), d, "conn-1", []byte(`{}`))
 

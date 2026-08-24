@@ -58,6 +58,9 @@ func handle(ctx context.Context, d deps, connectionID string, body []byte) error
 
 	g, err := d.games.GetGame(ctx, conn.GameID)
 	if err != nil {
+		if errors.Is(err, store.ErrGameNotFound) {
+			return notify(ctx, d, connectionID, "game no longer exists")
+		}
 		return fmt.Errorf("makemove: load game: %w", err)
 	}
 	if g.Status != string(game.InProgress) {
@@ -191,11 +194,12 @@ func commit(ctx context.Context, d deps, connectionID string, g *store.Game, exp
 }
 
 func updateRatings(ctx context.Context, d deps, g *store.Game) error {
-	white, err := d.players.GetPlayer(ctx, g.Players.White)
+	now := d.now().UnixMilli()
+	white, err := d.players.GetOrCreatePlayer(ctx, g.Players.White, now)
 	if err != nil {
 		return fmt.Errorf("load white player: %w", err)
 	}
-	black, err := d.players.GetPlayer(ctx, g.Players.Black)
+	black, err := d.players.GetOrCreatePlayer(ctx, g.Players.Black, now)
 	if err != nil {
 		return fmt.Errorf("load black player: %w", err)
 	}

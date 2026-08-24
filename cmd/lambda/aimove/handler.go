@@ -22,8 +22,8 @@ const (
 type actionType string
 
 const (
-	actionStart actionType = "start"
-	actionMove  actionType = "move"
+	actionStart  actionType = "start"
+	actionAIMove actionType = "aiMove"
 )
 
 type request struct {
@@ -63,17 +63,24 @@ func handle(ctx context.Context, d deps, connectionID string, body []byte) error
 
 	switch req.Action {
 	case actionStart:
-		return handleStart(ctx, d, connectionID, conn.PlayerID, req.Level)
-	case actionMove:
+		return handleStart(ctx, d, connectionID, conn, req.Level)
+	case actionAIMove:
 		return handleMove(ctx, d, connectionID, conn)
 	default:
 		return notify(ctx, d, connectionID, "unknown action")
 	}
 }
 
-func handleStart(ctx context.Context, d deps, connectionID, playerID string, level ai.Level) error {
+func handleStart(ctx context.Context, d deps, connectionID string, conn *store.Connection, level ai.Level) error {
 	if level != ai.LevelEasy && level != ai.LevelHard {
 		return notify(ctx, d, connectionID, "invalid level")
+	}
+
+	playerID := conn.PlayerID
+	if conn.GameID != "" {
+		if existing, err := d.games.GetGame(ctx, conn.GameID); err == nil && existing.VsAI && existing.Status == "in_progress" {
+			return reply(ctx, d, connectionID, moveResponse{Game: existing})
+		}
 	}
 
 	now := d.now().UnixMilli()
@@ -113,6 +120,9 @@ func handleMove(ctx context.Context, d deps, connectionID string, conn *store.Co
 
 	g, err := d.games.GetGame(ctx, conn.GameID)
 	if err != nil {
+		if errors.Is(err, store.ErrGameNotFound) {
+			return notify(ctx, d, connectionID, "game no longer exists")
+		}
 		return fmt.Errorf("aimove: load game: %w", err)
 	}
 	if !g.VsAI || g.Status != "in_progress" {

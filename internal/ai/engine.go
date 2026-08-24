@@ -56,7 +56,7 @@ func (HeuristicEngine) BestMove(fen string) (string, error) {
 		if err := candidate.Move(uci); err != nil {
 			continue
 		}
-		score := evaluate(candidate.FEN())
+		score := evaluatePosition(candidate)
 		if better(score, bestScore, maximizing) {
 			bestScore = score
 			best = uci
@@ -115,12 +115,12 @@ func (e *MinimaxEngine) BestMove(fen string) (string, error) {
 
 func minimax(g *game.Game, depth int, alpha, beta float64, maximizing bool) float64 {
 	if depth == 0 || g.IsOver() {
-		return evaluate(g.FEN())
+		return evaluatePosition(g)
 	}
 
 	moves := g.ValidMoves()
 	if len(moves) == 0 {
-		return evaluate(g.FEN())
+		return evaluatePosition(g)
 	}
 
 	if maximizing {
@@ -174,6 +174,21 @@ func better(score, best float64, maximizing bool) bool {
 		return score > best
 	}
 	return score < best
+}
+
+const mateScore = 100000
+
+func evaluatePosition(g *game.Game) float64 {
+	if g.IsOver() {
+		if winner, ok := g.Winner(); ok {
+			if winner == game.White {
+				return mateScore
+			}
+			return -mateScore
+		}
+		return 0
+	}
+	return evaluate(g.FEN())
 }
 
 var pieceValues = map[byte]float64{

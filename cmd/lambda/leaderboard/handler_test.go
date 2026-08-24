@@ -20,6 +20,12 @@ func (m *mockPlayerStore) GetPlayer(ctx context.Context, playerID string) (*stor
 	return p, args.Error(1)
 }
 
+func (m *mockPlayerStore) GetOrCreatePlayer(ctx context.Context, playerID string, now int64) (*store.Player, error) {
+	args := m.Called(ctx, playerID, now)
+	p, _ := args.Get(0).(*store.Player)
+	return p, args.Error(1)
+}
+
 func (m *mockPlayerStore) RecordGameResult(ctx context.Context, playerID string, newRating int, outcome store.GameOutcome) error {
 	args := m.Called(ctx, playerID, newRating, outcome)
 	return args.Error(0)

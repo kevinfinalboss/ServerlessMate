@@ -33,11 +33,13 @@ func NewQueueEntry(matchmakingKey, playerID, connectionID string, isGuest bool, 
 type QueueStore interface {
 	Join(ctx context.Context, e *QueueEntry) error
 	FindWaiting(ctx context.Context, matchmakingKey, excludePlayerID string) (*QueueEntry, error)
+	Leave(ctx context.Context, matchmakingKey, playerID string) error
 }
 
 type dynamoDBQueueAPI interface {
 	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
+	DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
 }
 
 type DynamoQueueStore struct {
@@ -88,4 +90,41 @@ func (s *DynamoQueueStore) FindWaiting(ctx context.Context, matchmakingKey, excl
 		}
 	}
 	return nil, nil
+}
+
+func (s *DynamoQueueStore) Leave(ctx context.Context, matchmakingKey, playerID string) error {
+	out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+		TableName:              &s.tableName,
+		KeyConditionExpression: strPtr("matchmakingKey = :key"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":key": &types.AttributeValueMemberS{Value: matchmakingKey},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("store: find queue entry to leave: %w", err)
+	}
+
+	for _, item := range out.Items {
+		var e QueueEntry
+		if err := attributevalue.UnmarshalMap(item, &e); err != nil {
+			return fmt.Errorf("store: unmarshal queue entry: %w", err)
+		}
+		if e.PlayerID != playerID {
+			continue
+		}
+
+		_, err := s.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+			TableName:           &s.tableName,
+			Key:                 queueKey(&e),
+			ConditionExpression: strPtr("attribute_exists(matchmakingKey)"),
+		})
+		if err != nil {
+			if isConditionalCheckFailed(err) {
+				return nil
+			}
+			return fmt.Errorf("store: leave queue: %w", err)
+		}
+		return nil
+	}
+	return nil
 }

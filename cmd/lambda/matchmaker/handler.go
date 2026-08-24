@@ -61,7 +61,7 @@ func handle(ctx context.Context, d deps, self *store.QueueEntry) error {
 		return fmt.Errorf("matchmaker: assign black connection: %w", err)
 	}
 
-	return notifyBoth(ctx, d, waiting, self, game.GameID)
+	return notifyBoth(ctx, d, waiting, self, game)
 }
 
 func assignConnection(ctx context.Context, d deps, e *store.QueueEntry, gameID string) error {
@@ -74,8 +74,8 @@ func assignConnection(ctx context.Context, d deps, e *store.QueueEntry, gameID s
 	})
 }
 
-func notifyBoth(ctx context.Context, d deps, white, black *store.QueueEntry, gameID string) error {
-	payload, err := json.Marshal(map[string]string{"type": "matchFound", "gameId": gameID})
+func notifyBoth(ctx context.Context, d deps, white, black *store.QueueEntry, game *store.Game) error {
+	payload, err := json.Marshal(game)
 	if err != nil {
 		return fmt.Errorf("marshal notification: %w", err)
 	}

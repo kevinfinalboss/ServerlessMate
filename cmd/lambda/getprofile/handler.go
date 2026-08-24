@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/kevinfinalboss/ServerlessMate/internal/store"
 	"github.com/kevinfinalboss/ServerlessMate/internal/ws"
@@ -30,6 +31,7 @@ type deps struct {
 	players     store.PlayerStore
 	friendships store.FriendshipStore
 	broadcaster ws.Broadcaster
+	now         func() time.Time
 }
 
 func handle(ctx context.Context, d deps, connectionID string, body []byte) error {
@@ -48,7 +50,7 @@ func handle(ctx context.Context, d deps, connectionID string, body []byte) error
 		targetID = conn.PlayerID
 	}
 
-	target, err := d.players.GetPlayer(ctx, targetID)
+	target, err := loadTarget(ctx, d, targetID, conn.PlayerID)
 	if err != nil {
 		if errors.Is(err, store.ErrPlayerNotFound) {
 			return notify(ctx, d, connectionID, "player not found")
@@ -71,6 +73,13 @@ func handle(ctx context.Context, d deps, connectionID string, body []byte) error
 	}
 
 	return reply(ctx, d, connectionID, resp)
+}
+
+func loadTarget(ctx context.Context, d deps, targetID, requesterID string) (*store.Player, error) {
+	if targetID == requesterID {
+		return d.players.GetOrCreatePlayer(ctx, targetID, d.now().UnixMilli())
+	}
+	return d.players.GetPlayer(ctx, targetID)
 }
 
 func canViewFullProfile(ctx context.Context, d deps, requesterID string, target *store.Player) (bool, error) {

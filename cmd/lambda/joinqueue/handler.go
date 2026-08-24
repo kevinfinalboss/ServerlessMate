@@ -23,8 +23,17 @@ var allowedTimeControls = map[string]bool{
 	"10+0": true,
 }
 
+type actionType string
+
+const (
+	actionJoin  actionType = "joinQueue"
+	actionLeave actionType = "leaveQueue"
+)
+
 type request struct {
-	TimeControl string `json:"timeControl"`
+	Action         actionType `json:"action,omitempty"`
+	TimeControl    string     `json:"timeControl,omitempty"`
+	MatchmakingKey string     `json:"matchmakingKey,omitempty"`
 }
 
 type deps struct {
@@ -45,13 +54,21 @@ func handle(ctx context.Context, d deps, connectionID string, body []byte) error
 	if err := json.Unmarshal(body, &req); err != nil {
 		return notify(ctx, d, connectionID, "invalid request body")
 	}
+
+	if req.Action == actionLeave {
+		return handleLeave(ctx, d, connectionID, conn, req)
+	}
+	return handleJoin(ctx, d, connectionID, conn, req)
+}
+
+func handleJoin(ctx context.Context, d deps, connectionID string, conn *store.Connection, req request) error {
 	if !allowedTimeControls[req.TimeControl] {
 		return notify(ctx, d, connectionID, "unsupported time control")
 	}
 
 	band := defaultGuestBand
 	if !conn.IsGuest {
-		player, err := d.players.GetPlayer(ctx, conn.PlayerID)
+		player, err := d.players.GetOrCreatePlayer(ctx, conn.PlayerID, d.now().UnixMilli())
 		if err != nil {
 			return fmt.Errorf("joinqueue: load player: %w", err)
 		}
@@ -67,6 +84,18 @@ func handle(ctx context.Context, d deps, connectionID string, body []byte) error
 	}
 
 	return reply(ctx, d, connectionID, map[string]string{"type": "queueJoined", "matchmakingKey": matchmakingKey})
+}
+
+func handleLeave(ctx context.Context, d deps, connectionID string, conn *store.Connection, req request) error {
+	if req.MatchmakingKey == "" {
+		return notify(ctx, d, connectionID, "missing matchmakingKey")
+	}
+
+	if err := d.queue.Leave(ctx, req.MatchmakingKey, conn.PlayerID); err != nil {
+		return fmt.Errorf("joinqueue: leave queue: %w", err)
+	}
+
+	return reply(ctx, d, connectionID, map[string]string{"type": "queueLeft"})
 }
 
 func ratingBand(rating int) string {

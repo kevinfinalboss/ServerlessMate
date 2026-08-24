@@ -16,6 +16,7 @@ var ErrPlayerNotFound = errors.New("store: player not found")
 
 const leaderboardGlobalPK = "GLOBAL"
 const leaderboardIndex = "LeaderboardIndex"
+const defaultRating = 1200
 
 type GameOutcome int
 
@@ -40,12 +41,14 @@ type Player struct {
 
 type PlayerStore interface {
 	GetPlayer(ctx context.Context, playerID string) (*Player, error)
+	GetOrCreatePlayer(ctx context.Context, playerID string, now int64) (*Player, error)
 	RecordGameResult(ctx context.Context, playerID string, newRating int, outcome GameOutcome) error
 	ListTopByRating(ctx context.Context, limit int32) ([]*Player, error)
 }
 
 type dynamoDBUpdateAPI interface {
 	GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+	PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 	UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
 	Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
@@ -78,6 +81,48 @@ func (s *DynamoPlayerStore) GetPlayer(ctx context.Context, playerID string) (*Pl
 		return nil, fmt.Errorf("store: unmarshal player: %w", err)
 	}
 	return &p, nil
+}
+
+func (s *DynamoPlayerStore) GetOrCreatePlayer(ctx context.Context, playerID string, now int64) (*Player, error) {
+	p, err := s.GetPlayer(ctx, playerID)
+	if err == nil {
+		return p, nil
+	}
+	if !errors.Is(err, ErrPlayerNotFound) {
+		return nil, err
+	}
+
+	item, err := attributevalue.MarshalMap(&Player{
+		PlayerID:   playerID,
+		Username:   defaultUsername(playerID),
+		Rating:     defaultRating,
+		Visibility: "public",
+		CreatedAt:  now,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: marshal default player: %w", err)
+	}
+
+	_, err = s.client.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName:           &s.tableName,
+		Item:                item,
+		ConditionExpression: strPtr("attribute_not_exists(playerId)"),
+	})
+	if err != nil {
+		if isConditionalCheckFailed(err) {
+			return s.GetPlayer(ctx, playerID)
+		}
+		return nil, fmt.Errorf("store: create default player: %w", err)
+	}
+
+	return s.GetPlayer(ctx, playerID)
+}
+
+func defaultUsername(playerID string) string {
+	if len(playerID) > 8 {
+		return "Player-" + playerID[:8]
+	}
+	return "Player-" + playerID
 }
 
 func (s *DynamoPlayerStore) RecordGameResult(ctx context.Context, playerID string, newRating int, outcome GameOutcome) error {

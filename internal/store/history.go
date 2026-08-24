@@ -17,12 +17,12 @@ const (
 )
 
 type HistoryEntry struct {
-	PlayerID   string `dynamodbav:"playerId"`
-	EndedAt    int64  `dynamodbav:"endedAt"`
-	GameID     string `dynamodbav:"gameId"`
-	OpponentID string `dynamodbav:"opponentId"`
-	Result     string `dynamodbav:"result"`
-	VsAI       bool   `dynamodbav:"vsAI"`
+	PlayerID   string `json:"playerId" dynamodbav:"playerId"`
+	EndedAt    int64  `json:"endedAt" dynamodbav:"endedAt"`
+	GameID     string `json:"gameId" dynamodbav:"gameId"`
+	OpponentID string `json:"opponentId" dynamodbav:"opponentId"`
+	Result     string `json:"result" dynamodbav:"result"`
+	VsAI       bool   `json:"vsAI" dynamodbav:"vsAI"`
 }
 
 type HistoryStore interface {

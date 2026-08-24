@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -42,6 +43,7 @@ func handleEvent(ctx context.Context, event events.APIGatewayWebsocketProxyReque
 		players:     store.NewDynamoPlayerStore(dynamoClient, os.Getenv("PLAYERS_TABLE")),
 		friendships: store.NewDynamoFriendshipStore(dynamoClient, os.Getenv("FRIENDSHIPS_TABLE")),
 		broadcaster: ws.NewAPIGatewayBroadcaster(apiGwClient),
+		now:         time.Now,
 	}
 
 	if err := handle(ctx, d, connectionID, []byte(event.Body)); err != nil {

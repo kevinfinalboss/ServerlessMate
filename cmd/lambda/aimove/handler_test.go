@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -165,6 +166,31 @@ func TestHandle_Start_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestHandle_Start_ReusesExistingInProgressGame(t *testing.T) {
+	games := new(mockGameStore)
+	conns := new(mockConnectionStore)
+	rate := new(mockRateLimitStore)
+	commentator := new(mockCommentator)
+	bc := new(mockBroadcaster)
+
+	g := baseAIGame()
+
+	conns.On("GetConnection", mock.Anything, "conn-1").Return(&store.Connection{PlayerID: "player-1", GameID: "game-1"}, nil)
+	games.On("GetGame", mock.Anything, "game-1").Return(g, nil)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		var got store.Game
+		return json.Unmarshal(payload, &got) == nil && got.GameID == g.GameID
+	})).Return(nil)
+
+	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(time.Now())}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"start","level":"easy"}`))
+
+	require.NoError(t, err)
+	games.AssertNotCalled(t, "CreateGame")
+	conns.AssertNotCalled(t, "PutConnection")
+}
+
 func TestHandle_Start_InvalidLevel(t *testing.T) {
 	games := new(mockGameStore)
 	conns := new(mockConnectionStore)
@@ -208,13 +234,13 @@ func TestHandle_Move_Success(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(now)}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.NoError(t, err)
 	games.AssertExpectations(t)
 }
 
-const aiEndsGameFEN = "4k3/8/8/8/1n6/8/P7/4K3 b - - 0 1"
+const aiEndsGameFEN = "r3k3/1q6/8/3B4/8/8/6PP/7K b - - 0 1"
 
 func TestHandle_Move_GameEnds_RecordsHistory(t *testing.T) {
 	games := new(mockGameStore)
@@ -231,18 +257,18 @@ func TestHandle_Move_GameEnds_RecordsHistory(t *testing.T) {
 	conns.On("GetConnection", mock.Anything, "conn-1").Return(&store.Connection{PlayerID: "player-1", GameID: "game-1"}, nil)
 	games.On("GetGame", mock.Anything, "game-1").Return(g, nil)
 	games.On("UpdateGame", mock.Anything, mock.MatchedBy(func(updated *store.Game) bool {
-		return updated.Status == "draw_insufficient_material" && updated.EndedAt == now.UnixMilli() && updated.TurnOf == ""
+		return updated.Status == "checkmate" && updated.Winner == ai.PlayerID && updated.EndedAt == now.UnixMilli() && updated.TurnOf == ""
 	}), aiEndsGameFEN).Return(nil)
 	history.On("RecordGameEnd", mock.Anything, mock.MatchedBy(func(updated *store.Game) bool {
-		return updated.Status == "draw_insufficient_material"
+		return updated.Status == "checkmate"
 	})).Return(nil)
 	rate.On("IncrementAndCheck", mock.Anything, "player-1", mock.Anything, dailyBedrockLimit, mock.Anything).Return(true, nil)
-	commentator.On("Comment", mock.Anything, mock.Anything, "b4a2").Return("Nice trade!", nil)
+	commentator.On("Comment", mock.Anything, mock.Anything, mock.Anything).Return("Checkmate!", nil)
 	bc.On("Send", mock.Anything, "conn-1", mock.Anything).Return(nil)
 
 	d := deps{games: games, connections: conns, rateLimits: rate, history: history, commentator: commentator, broadcaster: bc, now: fixedNow(now)}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.NoError(t, err)
 	history.AssertExpectations(t)
@@ -267,7 +293,7 @@ func TestHandle_Move_RecordHistoryError(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, history: history, commentator: commentator, broadcaster: bc, now: fixedNow(now)}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.Error(t, err)
 	rate.AssertNotCalled(t, "IncrementAndCheck")
@@ -293,7 +319,7 @@ func TestHandle_Move_RateLimited_NoComment(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(now)}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.NoError(t, err)
 	commentator.AssertNotCalled(t, "Comment")
@@ -318,7 +344,7 @@ func TestHandle_Move_CommentatorError_MoveStillSucceeds(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(now)}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.NoError(t, err)
 }
@@ -341,7 +367,7 @@ func TestHandle_Move_NotAITurn(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(time.UnixMilli(g.LastMoveAt))}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.NoError(t, err)
 	games.AssertNotCalled(t, "UpdateGame")
@@ -369,7 +395,7 @@ func TestHandle_Move_Timeout(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, history: history, commentator: commentator, broadcaster: bc, now: fixedNow(now)}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.NoError(t, err)
 	rate.AssertNotCalled(t, "IncrementAndCheck")
@@ -389,7 +415,7 @@ func TestHandle_Move_NoActiveGame(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(time.Now())}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.NoError(t, err)
 }
@@ -412,7 +438,7 @@ func TestHandle_Move_NotVsAIGame(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(time.Now())}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.NoError(t, err)
 }
@@ -462,7 +488,7 @@ func TestHandle_GetConnectionError(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(time.Now())}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.Error(t, err)
 }
@@ -497,9 +523,30 @@ func TestHandle_GetGameError(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(time.Now())}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.Error(t, err)
+}
+
+func TestHandle_Move_GameNotFound_NotifiesInsteadOfFailingSilently(t *testing.T) {
+	games := new(mockGameStore)
+	conns := new(mockConnectionStore)
+	rate := new(mockRateLimitStore)
+	commentator := new(mockCommentator)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").Return(&store.Connection{PlayerID: "player-1", GameID: "game-1"}, nil)
+	games.On("GetGame", mock.Anything, "game-1").Return(nil, store.ErrGameNotFound)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		return strings.Contains(string(payload), "game no longer exists")
+	})).Return(nil)
+
+	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(time.Now())}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
+
+	require.NoError(t, err)
+	bc.AssertExpectations(t)
 }
 
 func TestHandle_UpdateGameError(t *testing.T) {
@@ -517,7 +564,7 @@ func TestHandle_UpdateGameError(t *testing.T) {
 
 	d := deps{games: games, connections: conns, rateLimits: rate, commentator: commentator, broadcaster: bc, now: fixedNow(time.UnixMilli(g.LastMoveAt))}
 
-	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"move"}`))
+	err := handle(context.Background(), d, "conn-1", []byte(`{"action":"aiMove"}`))
 
 	require.Error(t, err)
 }

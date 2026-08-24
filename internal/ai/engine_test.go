@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kevinfinalboss/ServerlessMate/internal/game"
 )
 
 const startFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -61,6 +63,46 @@ func TestHeuristicEngine_FallsForHangingPiece(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "d1d4", move, "1-ply heuristic should greedily grab the defended pawn")
+}
+
+const mateInOneFEN = "r3k3/1q6/8/3B4/8/8/6PP/7K b - - 0 1"
+
+func assertDeliversMate(t *testing.T, move string) {
+	t.Helper()
+	g, err := game.FromFEN(mateInOneFEN)
+	require.NoError(t, err)
+	require.NoError(t, g.Move(move))
+	assert.Equal(t, game.Checkmate, g.Status(), "chosen move %q should deliver checkmate, not just grab material", move)
+}
+
+func TestHeuristicEngine_PrefersMateOverMaterial(t *testing.T) {
+	move, err := HeuristicEngine{}.BestMove(mateInOneFEN)
+
+	require.NoError(t, err)
+	assertDeliversMate(t, move)
+}
+
+func TestMinimaxEngine_PrefersMateOverMaterial(t *testing.T) {
+	move, err := (&MinimaxEngine{Depth: 3}).BestMove(mateInOneFEN)
+
+	require.NoError(t, err)
+	assertDeliversMate(t, move)
+}
+
+func TestEvaluatePosition_Checkmate(t *testing.T) {
+	g, err := game.FromFEN(mateInOneFEN)
+	require.NoError(t, err)
+	require.NoError(t, g.Move("a8a1"))
+
+	assert.Equal(t, float64(-mateScore), evaluatePosition(g))
+}
+
+func TestEvaluatePosition_Stalemate(t *testing.T) {
+	fen := "7k/8/6Q1/8/8/8/8/7K b - - 0 1"
+	g, err := game.FromFEN(fen)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0.0, evaluatePosition(g))
 }
 
 func TestMinimaxEngine_AvoidsHangingQueen(t *testing.T) {

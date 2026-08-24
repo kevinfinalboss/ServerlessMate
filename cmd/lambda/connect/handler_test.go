@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,17 +157,24 @@ func TestHandle_GameID_AsPlayer(t *testing.T) {
 	bc := new(mockBroadcaster)
 
 	validator.On("ValidatePlayerID", mock.Anything, "good-token").Return("player-1", nil)
-	g := &store.Game{GameID: "game-1", Players: store.Players{White: "player-1", Black: "player-2"}}
+	g := &store.Game{GameID: "game-1", FEN: "some-fen", Players: store.Players{White: "player-1", Black: "player-2"}}
 	games.On("GetGame", mock.Anything, "game-1").Return(g, nil)
 	conns.On("PutConnection", mock.Anything, mock.MatchedBy(func(c *store.Connection) bool {
 		return c.GameID == "game-1" && c.Role == store.RolePlayer
 	})).Return(nil)
-	bc.On("Send", mock.Anything, "conn-1", mock.Anything).Return(nil)
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		return strings.Contains(string(payload), `"type":"connected"`)
+	})).Return(nil).Once()
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		var got store.Game
+		return json.Unmarshal(payload, &got) == nil && got.GameID == "game-1" && got.FEN == "some-fen"
+	})).Return(nil).Once()
 
 	err := handle(context.Background(), baseDeps(games, conns, validator, bc), "conn-1", "good-token", "game-1")
 
 	require.NoError(t, err)
 	games.AssertNotCalled(t, "ClearDisconnect")
+	bc.AssertExpectations(t)
 }
 
 func TestHandle_GameID_AsSpectator(t *testing.T) {
@@ -237,6 +246,25 @@ func TestHandle_GameID_RejoinGraceExpired(t *testing.T) {
 
 	require.NoError(t, err)
 	games.AssertNotCalled(t, "ClearDisconnect")
+}
+
+func TestHandle_GameID_NotFound_ConnectsWithoutGame(t *testing.T) {
+	games := new(mockGameStore)
+	conns := new(mockConnectionStore)
+	validator := new(mockValidator)
+	bc := new(mockBroadcaster)
+
+	validator.On("ValidatePlayerID", mock.Anything, "good-token").Return("player-1", nil)
+	games.On("GetGame", mock.Anything, "stale-game").Return(nil, store.ErrGameNotFound)
+	conns.On("PutConnection", mock.Anything, mock.MatchedBy(func(c *store.Connection) bool {
+		return c.PlayerID == "player-1" && c.GameID == "" && c.Role == ""
+	})).Return(nil)
+	bc.On("Send", mock.Anything, "conn-1", mock.Anything).Return(nil)
+
+	err := handle(context.Background(), baseDeps(games, conns, validator, bc), "conn-1", "good-token", "stale-game")
+
+	require.NoError(t, err)
+	conns.AssertExpectations(t)
 }
 
 func TestHandle_GameID_GetGameError(t *testing.T) {

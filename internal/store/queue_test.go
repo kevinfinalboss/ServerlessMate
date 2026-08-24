@@ -29,6 +29,12 @@ func (m *mockDynamoDBQueueAPI) Query(ctx context.Context, params *dynamodb.Query
 	return out, args.Error(1)
 }
 
+func (m *mockDynamoDBQueueAPI) DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	args := m.Called(ctx, params)
+	out, _ := args.Get(0).(*dynamodb.DeleteItemOutput)
+	return out, args.Error(1)
+}
+
 func newTestQueueStore(client *mockDynamoDBQueueAPI) *DynamoQueueStore {
 	return &DynamoQueueStore{client: client, tableName: "Queue"}
 }
@@ -112,6 +118,84 @@ func TestFindWaiting_Error(t *testing.T) {
 	client.On("Query", mock.Anything, mock.Anything).Return(&dynamodb.QueryOutput{}, errors.New("network error"))
 
 	_, err := newTestQueueStore(client).FindWaiting(context.Background(), "5+0#1200", "player-1")
+
+	require.Error(t, err)
+}
+
+func TestLeave_DeletesOwnEntry(t *testing.T) {
+	self := NewQueueEntry("5+0#1200", "player-1", "conn-1", false, 1_700_000_000_000)
+	selfItem, err := attributevalue.MarshalMap(self)
+	require.NoError(t, err)
+	other := NewQueueEntry("5+0#1200", "player-2", "conn-2", false, 1_700_000_001_000)
+	otherItem, err := attributevalue.MarshalMap(other)
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBQueueAPI)
+	client.On("Query", mock.Anything, mock.Anything).
+		Return(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{otherItem, selfItem}}, nil)
+	client.On("DeleteItem", mock.Anything, mock.MatchedBy(func(in *dynamodb.DeleteItemInput) bool {
+		return *in.TableName == "Queue" &&
+			in.Key["matchmakingKey"].(*types.AttributeValueMemberS).Value == "5+0#1200" &&
+			in.Key["sortKey"].(*types.AttributeValueMemberS).Value == self.SortKey
+	})).Return(&dynamodb.DeleteItemOutput{}, nil)
+
+	err = newTestQueueStore(client).Leave(context.Background(), "5+0#1200", "player-1")
+
+	require.NoError(t, err)
+}
+
+func TestLeave_NoMatchingEntry_NoOp(t *testing.T) {
+	other := NewQueueEntry("5+0#1200", "player-2", "conn-2", false, 1_700_000_001_000)
+	otherItem, err := attributevalue.MarshalMap(other)
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBQueueAPI)
+	client.On("Query", mock.Anything, mock.Anything).
+		Return(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{otherItem}}, nil)
+
+	err = newTestQueueStore(client).Leave(context.Background(), "5+0#1200", "player-1")
+
+	require.NoError(t, err)
+	client.AssertNotCalled(t, "DeleteItem")
+}
+
+func TestLeave_AlreadyClaimedByMatchmaker_TreatedAsSuccess(t *testing.T) {
+	self := NewQueueEntry("5+0#1200", "player-1", "conn-1", false, 1_700_000_000_000)
+	selfItem, err := attributevalue.MarshalMap(self)
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBQueueAPI)
+	client.On("Query", mock.Anything, mock.Anything).
+		Return(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{selfItem}}, nil)
+	client.On("DeleteItem", mock.Anything, mock.Anything).
+		Return(&dynamodb.DeleteItemOutput{}, &types.ConditionalCheckFailedException{})
+
+	err = newTestQueueStore(client).Leave(context.Background(), "5+0#1200", "player-1")
+
+	require.NoError(t, err)
+}
+
+func TestLeave_QueryError(t *testing.T) {
+	client := new(mockDynamoDBQueueAPI)
+	client.On("Query", mock.Anything, mock.Anything).Return(&dynamodb.QueryOutput{}, errors.New("network error"))
+
+	err := newTestQueueStore(client).Leave(context.Background(), "5+0#1200", "player-1")
+
+	require.Error(t, err)
+}
+
+func TestLeave_DeleteError(t *testing.T) {
+	self := NewQueueEntry("5+0#1200", "player-1", "conn-1", false, 1_700_000_000_000)
+	selfItem, err := attributevalue.MarshalMap(self)
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBQueueAPI)
+	client.On("Query", mock.Anything, mock.Anything).
+		Return(&dynamodb.QueryOutput{Items: []map[string]types.AttributeValue{selfItem}}, nil)
+	client.On("DeleteItem", mock.Anything, mock.Anything).
+		Return(&dynamodb.DeleteItemOutput{}, errors.New("network error"))
+
+	err = newTestQueueStore(client).Leave(context.Background(), "5+0#1200", "player-1")
 
 	require.Error(t, err)
 }

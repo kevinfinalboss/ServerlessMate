@@ -18,28 +18,28 @@ var (
 )
 
 type Players struct {
-	White string `dynamodbav:"white"`
-	Black string `dynamodbav:"black"`
+	White string `json:"white" dynamodbav:"white"`
+	Black string `json:"black" dynamodbav:"black"`
 }
 
 type Game struct {
-	GameID               string  `dynamodbav:"gameId"`
-	FEN                  string  `dynamodbav:"fen"`
-	PGN                  string  `dynamodbav:"pgn"`
-	Players              Players `dynamodbav:"players"`
-	TurnOf               string  `dynamodbav:"turnOf"`
-	Status               string  `dynamodbav:"status"`
-	Version              int     `dynamodbav:"version"`
-	WhiteTimeMs          int64   `dynamodbav:"whiteTimeMs"`
-	BlackTimeMs          int64   `dynamodbav:"blackTimeMs"`
-	LastMoveAt           int64   `dynamodbav:"lastMoveAt"`
-	EndedAt              int64   `dynamodbav:"endedAt,omitempty"`
-	Winner               string  `dynamodbav:"winner,omitempty"`
-	DrawOfferedBy        string  `dynamodbav:"drawOfferedBy,omitempty"`
-	VsAI                 bool    `dynamodbav:"vsAI"`
-	AILevel              string  `dynamodbav:"aiLevel,omitempty"`
-	DisconnectedPlayerID string  `dynamodbav:"disconnectedPlayerId,omitempty"`
-	DisconnectedAt       int64   `dynamodbav:"disconnectedAt,omitempty"`
+	GameID               string  `json:"gameId" dynamodbav:"gameId"`
+	FEN                  string  `json:"fen" dynamodbav:"fen"`
+	PGN                  string  `json:"pgn" dynamodbav:"pgn"`
+	Players              Players `json:"players" dynamodbav:"players"`
+	TurnOf               string  `json:"turnOf" dynamodbav:"turnOf"`
+	Status               string  `json:"status" dynamodbav:"status"`
+	Version              int     `json:"version" dynamodbav:"version"`
+	WhiteTimeMs          int64   `json:"whiteTimeMs" dynamodbav:"whiteTimeMs"`
+	BlackTimeMs          int64   `json:"blackTimeMs" dynamodbav:"blackTimeMs"`
+	LastMoveAt           int64   `json:"lastMoveAt" dynamodbav:"lastMoveAt"`
+	EndedAt              int64   `json:"endedAt,omitempty" dynamodbav:"endedAt,omitempty"`
+	Winner               string  `json:"winner,omitempty" dynamodbav:"winner,omitempty"`
+	DrawOfferedBy        string  `json:"drawOfferedBy,omitempty" dynamodbav:"drawOfferedBy,omitempty"`
+	VsAI                 bool    `json:"vsAI" dynamodbav:"vsAI"`
+	AILevel              string  `json:"aiLevel,omitempty" dynamodbav:"aiLevel,omitempty"`
+	DisconnectedPlayerID string  `json:"-" dynamodbav:"disconnectedPlayerId,omitempty"`
+	DisconnectedAt       int64   `json:"-" dynamodbav:"disconnectedAt,omitempty"`
 }
 
 type GameStore interface {

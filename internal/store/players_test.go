@@ -23,6 +23,12 @@ func (m *mockDynamoDBUpdateAPI) GetItem(ctx context.Context, params *dynamodb.Ge
 	return out, args.Error(1)
 }
 
+func (m *mockDynamoDBUpdateAPI) PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+	args := m.Called(ctx, params)
+	out, _ := args.Get(0).(*dynamodb.PutItemOutput)
+	return out, args.Error(1)
+}
+
 func (m *mockDynamoDBUpdateAPI) UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	args := m.Called(ctx, params)
 	out, _ := args.Get(0).(*dynamodb.UpdateItemOutput)
@@ -95,6 +101,82 @@ func TestGetPlayer_Error(t *testing.T) {
 
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrPlayerNotFound)
+}
+
+func TestGetOrCreatePlayer_ExistingPlayer(t *testing.T) {
+	want := samplePlayer()
+	item, err := attributevalue.MarshalMap(want)
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBUpdateAPI)
+	client.On("GetItem", mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{Item: item}, nil)
+
+	got, err := newTestPlayerStore(client).GetOrCreatePlayer(context.Background(), "player-1", 1_700_000_000_000)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	client.AssertNotCalled(t, "PutItem")
+}
+
+func TestGetOrCreatePlayer_CreatesDefaultWhenMissing(t *testing.T) {
+	created := &Player{
+		PlayerID:   "player-9",
+		Username:   "Player-player-9",
+		Rating:     defaultRating,
+		Visibility: "public",
+		CreatedAt:  1_700_000_000_000,
+	}
+	createdItem, err := attributevalue.MarshalMap(created)
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBUpdateAPI)
+	client.On("GetItem", mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{Item: nil}, nil).Once()
+	client.On("PutItem", mock.Anything, mock.MatchedBy(func(in *dynamodb.PutItemInput) bool {
+		return *in.TableName == "Players"
+	})).Return(&dynamodb.PutItemOutput{}, nil)
+	client.On("GetItem", mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{Item: createdItem}, nil).Once()
+
+	got, err := newTestPlayerStore(client).GetOrCreatePlayer(context.Background(), "player-9", 1_700_000_000_000)
+
+	require.NoError(t, err)
+	assert.Equal(t, created, got)
+}
+
+func TestGetOrCreatePlayer_RaceFallsBackToGet(t *testing.T) {
+	existing := samplePlayer()
+	existingItem, err := attributevalue.MarshalMap(existing)
+	require.NoError(t, err)
+
+	client := new(mockDynamoDBUpdateAPI)
+	client.On("GetItem", mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{Item: nil}, nil).Once()
+	client.On("PutItem", mock.Anything, mock.Anything).
+		Return(&dynamodb.PutItemOutput{}, &types.ConditionalCheckFailedException{})
+	client.On("GetItem", mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{Item: existingItem}, nil).Once()
+
+	got, err := newTestPlayerStore(client).GetOrCreatePlayer(context.Background(), "player-1", 1_700_000_000_000)
+
+	require.NoError(t, err)
+	assert.Equal(t, existing, got)
+}
+
+func TestGetOrCreatePlayer_PutItemError(t *testing.T) {
+	client := new(mockDynamoDBUpdateAPI)
+	client.On("GetItem", mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{Item: nil}, nil).Once()
+	client.On("PutItem", mock.Anything, mock.Anything).Return(&dynamodb.PutItemOutput{}, errors.New("network error"))
+
+	_, err := newTestPlayerStore(client).GetOrCreatePlayer(context.Background(), "player-1", 1_700_000_000_000)
+
+	require.Error(t, err)
+}
+
+func TestGetOrCreatePlayer_GetItemError(t *testing.T) {
+	client := new(mockDynamoDBUpdateAPI)
+	client.On("GetItem", mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{}, errors.New("network error"))
+
+	_, err := newTestPlayerStore(client).GetOrCreatePlayer(context.Background(), "player-1", 1_700_000_000_000)
+
+	require.Error(t, err)
+	client.AssertNotCalled(t, "PutItem")
 }
 
 func TestRecordGameResult(t *testing.T) {

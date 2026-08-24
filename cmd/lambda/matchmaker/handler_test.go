@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -25,6 +26,11 @@ func (m *mockQueueStore) FindWaiting(ctx context.Context, matchmakingKey, exclud
 	args := m.Called(ctx, matchmakingKey, excludePlayerID)
 	e, _ := args.Get(0).(*store.QueueEntry)
 	return e, args.Error(1)
+}
+
+func (m *mockQueueStore) Leave(ctx context.Context, matchmakingKey, playerID string) error {
+	args := m.Called(ctx, matchmakingKey, playerID)
+	return args.Error(0)
 }
 
 type mockMatchStore struct{ mock.Mock }
@@ -116,8 +122,16 @@ func TestHandle_MatchFound_Success(t *testing.T) {
 	conns.On("PutConnection", mock.Anything, mock.MatchedBy(func(c *store.Connection) bool {
 		return c.ConnectionID == "conn-2" && c.GameID == "game-1" && c.Role == store.RolePlayer
 	})).Return(nil)
-	bc.On("Send", mock.Anything, "conn-1", mock.Anything).Return(nil)
-	bc.On("Send", mock.Anything, "conn-2", mock.Anything).Return(nil)
+	isFullGameState := mock.MatchedBy(func(payload []byte) bool {
+		var g store.Game
+		if err := json.Unmarshal(payload, &g); err != nil {
+			return false
+		}
+		return g.GameID == "game-1" && g.FEN == startFEN && g.TurnOf == "player-1" &&
+			g.Players.White == "player-1" && g.Players.Black == "player-2"
+	})
+	bc.On("Send", mock.Anything, "conn-1", isFullGameState).Return(nil)
+	bc.On("Send", mock.Anything, "conn-2", isFullGameState).Return(nil)
 
 	d := deps{queue: queue, match: match, connections: conns, broadcaster: bc, now: fixedNow(now), newGameID: fixedGameID("game-1")}
 
