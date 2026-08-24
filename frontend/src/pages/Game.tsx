@@ -10,6 +10,7 @@ import { useTranslation } from '../lib/i18n'
 import type { TranslationKey } from '../lib/i18n'
 import { clearActiveGameId, getActiveGameId, getPlayerId } from '../lib/session'
 import { playCaptureSound, playMoveSound } from '../lib/sound'
+import { isProfileResponse } from '../lib/types'
 import type { GameState } from '../lib/types'
 
 const AI_PLAYER_ID = 'AI'
@@ -63,14 +64,28 @@ function pieceCount(fen: string): number {
 
 export function Game() {
   const navigate = useNavigate()
-  const { identity, game, chat, error, dismissError, send, leaveGame: resetGame } = useGameSocket()
+  const { identity, game, chat, error, dismissError, send, lastMessage, leaveGame: resetGame } = useGameSocket()
   const { t } = useTranslation()
   const [chatInput, setChatInput] = useState('')
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null)
+  const [opponentUsername, setOpponentUsername] = useState<string | null>(null)
   const aiTriggeredForFEN = useRef<string | null>(null)
   const previousFenRef = useRef<string | null>(null)
 
   const myPlayerId = identity?.playerId ?? getPlayerId()
+
+  useEffect(() => {
+    if (!game || !myPlayerId) return
+    const opponentId = game.players.white === myPlayerId ? game.players.black : game.players.white
+    if (!opponentId || opponentId === AI_PLAYER_ID) return
+    send({ action: 'getProfile', playerId: opponentId })
+  }, [game?.gameId, myPlayerId, send])
+
+  useEffect(() => {
+    if (lastMessage && isProfileResponse(lastMessage)) {
+      setOpponentUsername(lastMessage.username)
+    }
+  }, [lastMessage])
 
   useEffect(() => {
     if (!getActiveGameId() && !game) {
@@ -254,6 +269,7 @@ export function Game() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-4 p-6 md:flex-row">
       <div className="flex-1">
+        {opponentUsername && <p className="mb-2 text-sm text-mute">{t('game.vs')} {opponentUsername}</p>}
         <div className="overflow-hidden rounded-2xl border border-ink-line bg-ink-raised p-3">
           <Chessboard
             options={{
