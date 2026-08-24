@@ -86,6 +86,8 @@ func TestHandle_NoOneWaiting(t *testing.T) {
 	bc := new(mockBroadcaster)
 
 	queue.On("FindWaiting", mock.Anything, "5+0#1200", "player-2").Return(nil, nil)
+	queue.On("FindWaiting", mock.Anything, "5+0#1000", "player-2").Return(nil, nil)
+	queue.On("FindWaiting", mock.Anything, "5+0#1400", "player-2").Return(nil, nil)
 
 	d := deps{queue: queue, match: match, connections: conns, broadcaster: bc, now: fixedNow(time.Now()), newGameID: fixedGameID("game-1")}
 	self := &store.QueueEntry{MatchmakingKey: "5+0#1200", PlayerID: "player-2", ConnectionID: "conn-2"}
@@ -161,6 +163,59 @@ func TestHandle_ClaimFailed_NoOp(t *testing.T) {
 
 	require.NoError(t, err)
 	conns.AssertNotCalled(t, "PutConnection")
+}
+
+func TestHandle_MatchesAcrossLowerBand(t *testing.T) {
+	queue := new(mockQueueStore)
+	match := new(mockMatchStore)
+	conns := new(mockConnectionStore)
+	bc := new(mockBroadcaster)
+
+	waiting := &store.QueueEntry{MatchmakingKey: "5+0#1000", PlayerID: "player-1", ConnectionID: "conn-1"}
+	self := &store.QueueEntry{MatchmakingKey: "5+0#1200", PlayerID: "player-2", ConnectionID: "conn-2"}
+
+	queue.On("FindWaiting", mock.Anything, "5+0#1200", "player-2").Return(nil, nil)
+	queue.On("FindWaiting", mock.Anything, "5+0#1000", "player-2").Return(waiting, nil)
+	match.On("CreateMatch", mock.Anything, mock.Anything, waiting, self).Return(nil)
+	conns.On("PutConnection", mock.Anything, mock.Anything).Return(nil)
+	bc.On("Send", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	d := deps{queue: queue, match: match, connections: conns, broadcaster: bc, now: fixedNow(time.Now()), newGameID: fixedGameID("game-1")}
+
+	err := handle(context.Background(), d, self)
+
+	require.NoError(t, err)
+	match.AssertExpectations(t)
+}
+
+func TestHandle_MatchesAcrossUpperBand(t *testing.T) {
+	queue := new(mockQueueStore)
+	match := new(mockMatchStore)
+	conns := new(mockConnectionStore)
+	bc := new(mockBroadcaster)
+
+	waiting := &store.QueueEntry{MatchmakingKey: "5+0#1400", PlayerID: "player-1", ConnectionID: "conn-1"}
+	self := &store.QueueEntry{MatchmakingKey: "5+0#1200", PlayerID: "player-2", ConnectionID: "conn-2"}
+
+	queue.On("FindWaiting", mock.Anything, "5+0#1200", "player-2").Return(nil, nil)
+	queue.On("FindWaiting", mock.Anything, "5+0#1000", "player-2").Return(nil, nil)
+	queue.On("FindWaiting", mock.Anything, "5+0#1400", "player-2").Return(waiting, nil)
+	match.On("CreateMatch", mock.Anything, mock.Anything, waiting, self).Return(nil)
+	conns.On("PutConnection", mock.Anything, mock.Anything).Return(nil)
+	bc.On("Send", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	d := deps{queue: queue, match: match, connections: conns, broadcaster: bc, now: fixedNow(time.Now()), newGameID: fixedGameID("game-1")}
+
+	err := handle(context.Background(), d, self)
+
+	require.NoError(t, err)
+	match.AssertExpectations(t)
+}
+
+func TestCandidateMatchmakingKeys(t *testing.T) {
+	assert.ElementsMatch(t, []string{"5+0#1200", "5+0#1000", "5+0#1400"}, candidateMatchmakingKeys("5+0#1200"))
+	assert.ElementsMatch(t, []string{"5+0#0", "5+0#200"}, candidateMatchmakingKeys("5+0#0"))
+	assert.Equal(t, []string{"not-a-valid-key"}, candidateMatchmakingKeys("not-a-valid-key"))
 }
 
 func TestHandle_FindWaitingError(t *testing.T) {
