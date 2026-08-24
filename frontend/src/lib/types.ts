@@ -52,6 +52,10 @@ export interface MatchFoundMessage {
   gameId: string
 }
 
+export interface QueueLeftMessage {
+  type: 'queueLeft'
+}
+
 export interface ProfileResponse {
   type?: never
   playerId: string
@@ -107,6 +111,7 @@ export type ServerMessage =
   | ErrorMessage
   | QueueJoinedMessage
   | MatchFoundMessage
+  | QueueLeftMessage
   | ProfileResponse
   | LeaderboardMessage
   | HistoryMessage

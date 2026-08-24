@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { socket } from './socket'
-import { setPlayerId } from './session'
+import { clearActiveGameId, setPlayerId } from './session'
 import { isGameState, isType } from './types'
 import type { ChatMessage, ConnectedMessage, ErrorMessage, GameState, ServerMessage } from './types'
 
@@ -15,6 +15,7 @@ interface GameSocketValue {
   lastMessage: ServerMessage | null
   send: (payload: Record<string, unknown>) => void
   connect: () => void
+  leaveGame: () => void
 }
 
 const GameSocketContext = createContext<GameSocketValue | null>(null)
@@ -35,9 +36,18 @@ export function GameSocketProvider({ children }: { children: ReactNode }) {
       if (isType<ConnectedMessage>(msg, 'connected')) {
         setIdentity(msg)
         setPlayerId(msg.playerId)
+        if (!msg.gameId) {
+          clearActiveGameId()
+        }
         return
       }
       if (isGameState(msg)) {
+        console.log('[game] state updated', {
+          gameId: msg.gameId,
+          status: msg.status,
+          turnOf: msg.turnOf,
+          myTurn: msg.turnOf === msg.players.white || msg.turnOf === msg.players.black,
+        })
         setGame(msg)
         return
       }
@@ -46,7 +56,13 @@ export function GameSocketProvider({ children }: { children: ReactNode }) {
         return
       }
       if (isType<ErrorMessage>(msg, 'error')) {
+        console.warn('[game] server error', msg.message)
         setError(msg.message)
+        if (msg.message === 'game no longer exists') {
+          console.log('[game] clearing stale game state and gameId')
+          clearActiveGameId()
+          setGame(null)
+        }
       }
     })
 
@@ -63,6 +79,10 @@ export function GameSocketProvider({ children }: { children: ReactNode }) {
 
   const dismissError = useCallback(() => setError(null), [])
   const connect = useCallback(() => socket.connect(), [])
+  const leaveGame = useCallback(() => {
+    setGame(null)
+    setChat([])
+  }, [])
 
   const value: GameSocketValue = {
     connected,
@@ -74,6 +94,7 @@ export function GameSocketProvider({ children }: { children: ReactNode }) {
     lastMessage,
     send,
     connect,
+    leaveGame,
   }
 
   return <GameSocketContext.Provider value={value}>{children}</GameSocketContext.Provider>

@@ -30,8 +30,25 @@ export function clearActiveGameId() {
   localStorage.removeItem(GAME_ID_KEY)
 }
 
+function decodeJwtSub(token: string): string | null {
+  try {
+    const payload = token.split('.')[1]
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const json = atob(padded)
+    const claims = JSON.parse(json) as { sub?: string }
+    return claims.sub ?? null
+  } catch {
+    return null
+  }
+}
+
 export function getPlayerId(): string | null {
-  return localStorage.getItem(PLAYER_ID_KEY)
+  const stored = localStorage.getItem(PLAYER_ID_KEY)
+  if (stored) return stored
+
+  const token = getToken()
+  return token ? decodeJwtSub(token) : null
 }
 
 export function setPlayerId(playerId: string) {

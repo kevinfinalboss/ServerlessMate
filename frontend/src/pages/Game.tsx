@@ -1,13 +1,54 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Chessboard } from 'react-chessboard'
-import type { PieceDropHandlerArgs } from 'react-chessboard'
+import type { PieceDropHandlerArgs, SquareHandlerArgs } from 'react-chessboard'
 import { Chess } from 'chess.js'
+import type { Square } from 'chess.js'
 import { useGameSocket } from '../lib/GameSocketProvider'
 import { useTranslation } from '../lib/i18n'
+import type { TranslationKey } from '../lib/i18n'
 import { clearActiveGameId, getActiveGameId, getPlayerId } from '../lib/session'
+import { playCaptureSound, playMoveSound } from '../lib/sound'
+import type { GameState } from '../lib/types'
 
 const AI_PLAYER_ID = 'AI'
+
+const DRAW_REASON_KEY: Partial<Record<string, TranslationKey>> = {
+  checkmate: 'game.result.checkmate',
+  stalemate: 'game.result.stalemate',
+  draw_agreement: 'game.result.draw_agreement',
+  draw_repetition: 'game.result.draw_repetition',
+  draw_move_rule: 'game.result.draw_move_rule',
+  draw_insufficient_material: 'game.result.draw_insufficient_material',
+}
+
+const LOSS_SUFFIX_KEY: Partial<Record<string, TranslationKey>> = {
+  timeout: 'game.result.timeoutSuffix',
+  resigned: 'game.result.resignedSuffix',
+  abandoned: 'game.result.abandonedSuffix',
+}
+
+function describeOutcome(game: GameState, t: (key: TranslationKey) => string): string {
+  const reasonKey = DRAW_REASON_KEY[game.status]
+  if (reasonKey) return t(reasonKey)
+
+  const suffixKey = LOSS_SUFFIX_KEY[game.status]
+  if (!suffixKey || !game.winner) return game.status
+
+  const loserIsWhite = game.winner === game.players.black
+  const subject = t(loserIsWhite ? 'game.white' : 'game.black')
+  return `${subject} ${t(suffixKey)}`
+}
+
+function describeWinner(game: GameState, myPlayerId: string | null, t: (key: TranslationKey) => string): string {
+  if (!game.winner) return ''
+  if (game.winner === myPlayerId) return t('game.you')
+  if (game.winner === AI_PLAYER_ID) return t('game.ai')
+  if (game.winner === game.players.white) return t('game.white')
+  if (game.winner === game.players.black) return t('game.black')
+  return game.winner
+}
 
 function formatClock(ms: number) {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
@@ -16,20 +57,57 @@ function formatClock(ms: number) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+function pieceCount(fen: string): number {
+  return fen.split(' ')[0].replace(/[^a-zA-Z]/g, '').length
+}
+
 export function Game() {
   const navigate = useNavigate()
-  const { identity, game, chat, error, dismissError, send } = useGameSocket()
+  const { identity, game, chat, error, dismissError, send, leaveGame: resetGame } = useGameSocket()
   const { t } = useTranslation()
   const [chatInput, setChatInput] = useState('')
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null)
   const aiTriggeredForFEN = useRef<string | null>(null)
+  const previousFenRef = useRef<string | null>(null)
 
   const myPlayerId = identity?.playerId ?? getPlayerId()
 
   useEffect(() => {
-    if (!getActiveGameId()) {
+    if (!getActiveGameId() && !game) {
       navigate('/play')
     }
-  }, [navigate])
+  }, [game, navigate])
+
+  useEffect(() => {
+    if (!game) return
+    const previousFen = previousFenRef.current
+    previousFenRef.current = game.fen
+    if (previousFen === null || previousFen === game.fen) return
+
+    if (pieceCount(game.fen) < pieceCount(previousFen)) {
+      playCaptureSound()
+    } else {
+      playMoveSound()
+    }
+  }, [game])
+
+  const [nowTick, setNowTick] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!game || game.status !== 'in_progress') return
+    const interval = setInterval(() => setNowTick(Date.now()), 250)
+    return () => clearInterval(interval)
+  }, [game?.status, game?.gameId])
+
+  const whiteDisplayMs =
+    game && game.status === 'in_progress' && game.turnOf === game.players.white
+      ? Math.max(0, game.whiteTimeMs - (nowTick - game.lastMoveAt))
+      : (game?.whiteTimeMs ?? 0)
+
+  const blackDisplayMs =
+    game && game.status === 'in_progress' && game.turnOf === game.players.black
+      ? Math.max(0, game.blackTimeMs - (nowTick - game.lastMoveAt))
+      : (game?.blackTimeMs ?? 0)
 
   useEffect(() => {
     if (!game || !game.vsAI) return
@@ -37,7 +115,7 @@ export function Game() {
     if (game.turnOf !== AI_PLAYER_ID) return
     if (aiTriggeredForFEN.current === game.fen) return
     aiTriggeredForFEN.current = game.fen
-    send({ action: 'move' })
+    send({ action: 'aiMove' })
   }, [game, send])
 
   const myColor: 'white' | 'black' | null =
@@ -51,26 +129,96 @@ export function Game() {
 
   const isMyTurn = Boolean(game && myPlayerId && game.turnOf === myPlayerId)
 
-  const onPieceDrop = useCallback(
-    ({ piece, sourceSquare, targetSquare }: PieceDropHandlerArgs) => {
-      if (!game || !targetSquare || !isMyTurn) return false
+  useEffect(() => {
+    setSelectedSquare(null)
+  }, [game?.fen])
+
+  useEffect(() => {
+    if (!game) return
+    console.log('[game] turn check', {
+      myPlayerId,
+      identityPlayerId: identity?.playerId ?? null,
+      storedPlayerId: getPlayerId(),
+      players: game.players,
+      turnOf: game.turnOf,
+      myColor,
+      isMyTurn,
+      status: game.status,
+    })
+  }, [game, myPlayerId, identity, myColor, isMyTurn])
+
+  const legalTargets = useMemo(() => {
+    if (!game || !selectedSquare) return []
+    const chess = new Chess(game.fen)
+    return chess.moves({ square: selectedSquare, verbose: true }).map((move): string => move.to)
+  }, [game, selectedSquare])
+
+  const submitMove = useCallback(
+    (from: string, to: string) => {
+      if (!game) return false
 
       const chess = new Chess(game.fen)
-      const isPromotion =
-        piece.pieceType.toLowerCase().endsWith('p') &&
-        (targetSquare.endsWith('8') || targetSquare.endsWith('1'))
+      const piece = chess.get(from as Square)
+      const isPromotion = piece?.type === 'p' && (to.endsWith('8') || to.endsWith('1'))
 
       try {
-        chess.move({ from: sourceSquare, to: targetSquare, promotion: isPromotion ? 'q' : undefined })
+        chess.move({ from, to, promotion: isPromotion ? 'q' : undefined })
       } catch {
         return false
       }
 
-      send({ action: 'move', move: `${sourceSquare}${targetSquare}${isPromotion ? 'q' : ''}` })
+      send({ action: 'move', move: `${from}${to}${isPromotion ? 'q' : ''}` })
       return true
     },
-    [game, isMyTurn, send],
+    [game, send],
   )
+
+  const onPieceDrop = useCallback(
+    ({ sourceSquare, targetSquare }: PieceDropHandlerArgs) => {
+      if (!targetSquare || !isMyTurn) {
+        console.log('[game] drop rejected', { sourceSquare, targetSquare, isMyTurn })
+        return false
+      }
+      const moved = submitMove(sourceSquare, targetSquare)
+      console.log('[game] drop', { sourceSquare, targetSquare, moved })
+      if (moved) setSelectedSquare(null)
+      return moved
+    },
+    [isMyTurn, submitMove],
+  )
+
+  const onSquareClick = useCallback(
+    ({ piece, square }: SquareHandlerArgs) => {
+      if (!game || !isMyTurn) {
+        console.log('[game] square click ignored', { square, hasGame: Boolean(game), isMyTurn })
+        return
+      }
+
+      if (selectedSquare && legalTargets.includes(square)) {
+        const moved = submitMove(selectedSquare, square)
+        console.log('[game] click move', { from: selectedSquare, to: square, moved })
+        setSelectedSquare(moved ? null : selectedSquare)
+        return
+      }
+
+      const ownsPiece = piece && piece.pieceType.startsWith(myColor === 'white' ? 'w' : 'b')
+      setSelectedSquare(ownsPiece ? (square as Square) : null)
+    },
+    [game, isMyTurn, myColor, selectedSquare, legalTargets, submitMove],
+  )
+
+  const squareStyles = useMemo(() => {
+    const styles: Record<string, CSSProperties> = {}
+    if (selectedSquare) {
+      styles[selectedSquare] = { backgroundColor: 'rgba(159, 232, 91, 0.4)' }
+    }
+    for (const square of legalTargets) {
+      styles[square] = {
+        backgroundImage: 'radial-gradient(circle, rgba(159, 232, 91, 0.55) 22%, transparent 26%)',
+      }
+    }
+    return styles
+  }, [selectedSquare, legalTargets])
 
   function resign() {
     send({ action: 'resign' })
@@ -92,6 +240,7 @@ export function Game() {
 
   function leaveGame() {
     clearActiveGameId()
+    resetGame()
     navigate('/play')
   }
 
@@ -112,7 +261,10 @@ export function Game() {
               position: game.fen,
               boardOrientation: myColor ?? 'white',
               onPieceDrop,
+              onSquareClick,
+              squareStyles,
               allowDragging: isMyTurn && !isOver,
+              dragActivationDistance: 12,
               darkSquareStyle: { backgroundColor: 'var(--color-felt)' },
               lightSquareStyle: { backgroundColor: 'var(--color-paper)' },
             }}
@@ -120,21 +272,20 @@ export function Game() {
         </div>
         <div className="mt-4 flex items-center justify-between font-mono font-tabular text-paper">
           <span>
-            {t('game.white')}: {formatClock(game.whiteTimeMs)}
+            {t('game.white')}: {formatClock(whiteDisplayMs)}
           </span>
           <span>
-            {t('game.black')}: {formatClock(game.blackTimeMs)}
+            {t('game.black')}: {formatClock(blackDisplayMs)}
           </span>
         </div>
         {game.comment && <p className="mt-2 text-sm text-lime italic">&ldquo;{game.comment}&rdquo;</p>}
         {isOver ? (
           <div className="mt-4 rounded-2xl border border-ink-line bg-ink-raised p-4 text-center">
-            <p className="font-display font-medium text-paper">
-              {t('game.over')}: {game.status}
-            </p>
+            <p className="font-display font-medium text-paper">{t('game.over')}</p>
+            <p className="mt-1 text-sm text-paper">{describeOutcome(game, t)}</p>
             {game.winner && (
               <p className="mt-1 text-sm text-mute">
-                {t('game.winner')}: {game.winner}
+                {t('game.winner')}: {describeWinner(game, myPlayerId, t)}
               </p>
             )}
             <button
