@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useGameSocket } from '../lib/GameSocketProvider'
 import { useTranslation } from '../lib/i18n'
 import { isType } from '../lib/types'
@@ -42,7 +43,16 @@ export function History() {
         {entries.map((entry) => (
           <li key={entry.gameId} className="flex items-center justify-between px-4 py-3 text-sm">
             <span className={`font-medium ${RESULT_COLOR[entry.result]}`}>{t(`history.result.${entry.result}`)}</span>
-            <span className="text-mute">vs {entry.vsAI ? t('history.vsAI') : entry.opponentId}</span>
+            <span className="text-mute">
+              vs{' '}
+              {entry.vsAI ? (
+                t('history.vsAI')
+              ) : (
+                <Link to={`/profile/${entry.opponentId}`} className="hover:text-lime">
+                  {entry.opponentId}
+                </Link>
+              )}
+            </span>
             <button
               onClick={() => viewReplay(entry.gameId)}
               className="rounded-full bg-ink-line px-3 py-1 text-xs font-medium text-paper hover:bg-felt"
