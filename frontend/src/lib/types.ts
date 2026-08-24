@@ -100,8 +100,20 @@ export interface ReplayMessage {
 }
 
 export interface FriendEventMessage {
-  type: 'friendRequestSent' | 'friendRequestAccepted' | 'playerBlocked'
+  type: 'friendRequestSent' | 'friendRequestAccepted' | 'playerBlocked' | 'friendRequestCancelled'
   friendId: string
+}
+
+export interface FriendEntry {
+  playerId: string
+  username: string
+}
+
+export interface FriendsMessage {
+  type: 'friends'
+  friends: FriendEntry[]
+  incomingRequests: FriendEntry[]
+  outgoingRequests: FriendEntry[]
 }
 
 export type ServerMessage =
@@ -117,6 +129,7 @@ export type ServerMessage =
   | HistoryMessage
   | ReplayMessage
   | FriendEventMessage
+  | FriendsMessage
 
 export function isGameState(msg: ServerMessage): msg is GameState {
   return 'fen' in msg && 'gameId' in msg
