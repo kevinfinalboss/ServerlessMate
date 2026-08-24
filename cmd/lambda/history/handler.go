@@ -24,6 +24,7 @@ type deps struct {
 	connections store.ConnectionStore
 	games       store.GameStore
 	history     store.HistoryStore
+	players     store.PlayerStore
 	broadcaster ws.Broadcaster
 }
 
@@ -59,6 +60,11 @@ func handleReplay(ctx context.Context, d deps, connectionID, playerID, gameID st
 	return reply(ctx, d, connectionID, map[string]string{"type": "replay", "gameId": g.GameID, "pgn": g.PGN})
 }
 
+type historyEntryResponse struct {
+	store.HistoryEntry
+	OpponentUsername string `json:"opponentUsername"`
+}
+
 func handleList(ctx context.Context, d deps, connectionID, playerID string, limit int32) error {
 	if limit <= 0 {
 		limit = defaultLimit
@@ -72,7 +78,29 @@ func handleList(ctx context.Context, d deps, connectionID, playerID string, limi
 		return fmt.Errorf("history: list history: %w", err)
 	}
 
-	return reply(ctx, d, connectionID, map[string]any{"type": "history", "entries": entries})
+	usernames := make(map[string]string)
+	resp := make([]historyEntryResponse, len(entries))
+	for i, e := range entries {
+		username := ""
+		if !e.VsAI {
+			username = resolveUsername(ctx, d, usernames, e.OpponentID)
+		}
+		resp[i] = historyEntryResponse{HistoryEntry: *e, OpponentUsername: username}
+	}
+
+	return reply(ctx, d, connectionID, map[string]any{"type": "history", "entries": resp})
+}
+
+func resolveUsername(ctx context.Context, d deps, cache map[string]string, playerID string) string {
+	if username, ok := cache[playerID]; ok {
+		return username
+	}
+	username := playerID
+	if p, err := d.players.GetPlayer(ctx, playerID); err == nil {
+		username = p.Username
+	}
+	cache[playerID] = username
+	return username
 }
 
 func reply(ctx context.Context, d deps, connectionID string, payload any) error {
