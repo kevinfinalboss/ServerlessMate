@@ -78,6 +78,37 @@ func (m *mockHistoryStore) ListHistory(ctx context.Context, playerID string, lim
 	return e, args.Error(1)
 }
 
+type mockPlayerStore struct{ mock.Mock }
+
+func (m *mockPlayerStore) GetPlayer(ctx context.Context, playerID string) (*store.Player, error) {
+	args := m.Called(ctx, playerID)
+	p, _ := args.Get(0).(*store.Player)
+	return p, args.Error(1)
+}
+
+func (m *mockPlayerStore) GetOrCreatePlayer(ctx context.Context, playerID string, now int64) (*store.Player, error) {
+	args := m.Called(ctx, playerID, now)
+	p, _ := args.Get(0).(*store.Player)
+	return p, args.Error(1)
+}
+
+func (m *mockPlayerStore) UpdateProfile(ctx context.Context, playerID string, update store.ProfileUpdate) (*store.Player, error) {
+	args := m.Called(ctx, playerID, update)
+	p, _ := args.Get(0).(*store.Player)
+	return p, args.Error(1)
+}
+
+func (m *mockPlayerStore) RecordGameResult(ctx context.Context, playerID string, newRating int, outcome store.GameOutcome) error {
+	args := m.Called(ctx, playerID, newRating, outcome)
+	return args.Error(0)
+}
+
+func (m *mockPlayerStore) ListTopByRating(ctx context.Context, limit int32) ([]*store.Player, error) {
+	args := m.Called(ctx, limit)
+	p, _ := args.Get(0).([]*store.Player)
+	return p, args.Error(1)
+}
+
 type mockBroadcaster struct{ mock.Mock }
 
 func (m *mockBroadcaster) Send(ctx context.Context, connectionID string, payload []byte) error {
@@ -93,7 +124,7 @@ func TestHandle_List_DefaultLimit(t *testing.T) {
 
 	conns.On("GetConnection", mock.Anything, "conn-1").Return(&store.Connection{PlayerID: "player-1"}, nil)
 	history.On("ListHistory", mock.Anything, "player-1", int32(defaultLimit)).
-		Return([]*store.HistoryEntry{{GameID: "game-1", Result: store.ResultWin}}, nil)
+		Return([]*store.HistoryEntry{{GameID: "game-1", Result: store.ResultWin, VsAI: true}}, nil)
 	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
 		var body map[string]json.RawMessage
 		require.NoError(t, json.Unmarshal(payload, &body))
@@ -107,6 +138,33 @@ func TestHandle_List_DefaultLimit(t *testing.T) {
 	err := handle(context.Background(), d, "conn-1", []byte(`{}`))
 
 	require.NoError(t, err)
+}
+
+func TestHandle_List_ResolvesOpponentUsername(t *testing.T) {
+	conns := new(mockConnectionStore)
+	games := new(mockGameStore)
+	history := new(mockHistoryStore)
+	players := new(mockPlayerStore)
+	bc := new(mockBroadcaster)
+
+	conns.On("GetConnection", mock.Anything, "conn-1").Return(&store.Connection{PlayerID: "player-1"}, nil)
+	history.On("ListHistory", mock.Anything, "player-1", int32(defaultLimit)).
+		Return([]*store.HistoryEntry{
+			{GameID: "game-1", OpponentID: "player-2", Result: store.ResultWin},
+			{GameID: "game-2", OpponentID: "player-2", Result: store.ResultLoss},
+		}, nil)
+	players.On("GetPlayer", mock.Anything, "player-2").Return(&store.Player{PlayerID: "player-2", Username: "carlsen"}, nil).Once()
+	bc.On("Send", mock.Anything, "conn-1", mock.MatchedBy(func(payload []byte) bool {
+		return strings.Contains(string(payload), `"opponentUsername":"carlsen"`) &&
+			strings.Count(string(payload), "carlsen") == 2
+	})).Return(nil)
+
+	d := deps{connections: conns, games: games, history: history, players: players, broadcaster: bc}
+
+	err := handle(context.Background(), d, "conn-1", []byte(`{}`))
+
+	require.NoError(t, err)
+	players.AssertExpectations(t)
 }
 
 func TestHandle_List_LimitCapped(t *testing.T) {
