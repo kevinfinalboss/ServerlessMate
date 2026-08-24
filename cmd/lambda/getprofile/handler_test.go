@@ -80,6 +80,12 @@ func (m *mockFriendshipStore) ListFriendships(ctx context.Context, playerID stri
 	return f, args.Error(1)
 }
 
+func (m *mockFriendshipStore) ListIncomingRequests(ctx context.Context, playerID string) ([]*store.Friendship, error) {
+	args := m.Called(ctx, playerID)
+	f, _ := args.Get(0).([]*store.Friendship)
+	return f, args.Error(1)
+}
+
 func (m *mockFriendshipStore) SendRequest(ctx context.Context, playerID, friendID string, at int64) error {
 	args := m.Called(ctx, playerID, friendID, at)
 	return args.Error(0)
@@ -92,6 +98,11 @@ func (m *mockFriendshipStore) AcceptRequest(ctx context.Context, playerID, frien
 
 func (m *mockFriendshipStore) Block(ctx context.Context, playerID, friendID string, at int64) error {
 	args := m.Called(ctx, playerID, friendID, at)
+	return args.Error(0)
+}
+
+func (m *mockFriendshipStore) CancelRequest(ctx context.Context, playerA, playerB string) error {
+	args := m.Called(ctx, playerA, playerB)
 	return args.Error(0)
 }
 
