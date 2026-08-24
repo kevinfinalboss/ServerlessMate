@@ -37,6 +37,18 @@ type Player struct {
 	Visibility    string `dynamodbav:"visibility"`
 	CreatedAt     int64  `dynamodbav:"createdAt"`
 	LeaderboardPK string `dynamodbav:"leaderboardPK,omitempty"`
+	BirthDate     string `dynamodbav:"birthDate,omitempty"`
+	Country       string `dynamodbav:"country,omitempty"`
+	Github        string `dynamodbav:"github,omitempty"`
+	LinkedIn      string `dynamodbav:"linkedIn,omitempty"`
+}
+
+type ProfileUpdate struct {
+	Visibility string
+	BirthDate  string
+	Country    string
+	Github     string
+	LinkedIn   string
 }
 
 type PlayerStore interface {
@@ -44,6 +56,7 @@ type PlayerStore interface {
 	GetOrCreatePlayer(ctx context.Context, playerID string, now int64) (*Player, error)
 	RecordGameResult(ctx context.Context, playerID string, newRating int, outcome GameOutcome) error
 	ListTopByRating(ctx context.Context, limit int32) ([]*Player, error)
+	UpdateProfile(ctx context.Context, playerID string, update ProfileUpdate) (*Player, error)
 }
 
 type dynamoDBUpdateAPI interface {
@@ -152,6 +165,31 @@ func (s *DynamoPlayerStore) RecordGameResult(ctx context.Context, playerID strin
 		return fmt.Errorf("store: record game result: %w", err)
 	}
 	return nil
+}
+
+func (s *DynamoPlayerStore) UpdateProfile(ctx context.Context, playerID string, update ProfileUpdate) (*Player, error) {
+	_, err := s.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: &s.tableName,
+		Key: map[string]types.AttributeValue{
+			"playerId": &types.AttributeValueMemberS{Value: playerID},
+		},
+		UpdateExpression:    strPtr("SET visibility = :visibility, birthDate = :birthDate, country = :country, github = :github, linkedIn = :linkedIn"),
+		ConditionExpression: strPtr("attribute_exists(playerId)"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":visibility": &types.AttributeValueMemberS{Value: update.Visibility},
+			":birthDate":  &types.AttributeValueMemberS{Value: update.BirthDate},
+			":country":    &types.AttributeValueMemberS{Value: update.Country},
+			":github":     &types.AttributeValueMemberS{Value: update.Github},
+			":linkedIn":   &types.AttributeValueMemberS{Value: update.LinkedIn},
+		},
+	})
+	if err != nil {
+		if isConditionalCheckFailed(err) {
+			return nil, ErrPlayerNotFound
+		}
+		return nil, fmt.Errorf("store: update profile: %w", err)
+	}
+	return s.GetPlayer(ctx, playerID)
 }
 
 func (s *DynamoPlayerStore) ListTopByRating(ctx context.Context, limit int32) ([]*Player, error) {
